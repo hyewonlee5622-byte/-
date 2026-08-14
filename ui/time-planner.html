@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>미션 타임플래너</title>
+<style>
+  :root{
+    --bg:#EEF1F4;
+    --panel:#FFFFFF;
+    --ink:#16233B;
+    --ink-soft:#5B6B84;
+    --line:#C7D0DA;
+    --accent1:#E8720C;
+    --accent2:#B8511F;
+    --accent3:#8A3A15;
+    --sleep:#9AB0C9;
+    --free:#D8DEE6;
+    --danger:#D64545;
+    --danger-bg:#FBE4E4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    line-height:1.5;
+    padding:32px 20px 80px;
+  }
+  .app{max-width:980px;margin:0 auto;}
+
+  .masthead{margin-bottom:32px;}
+  .eyebrow{
+    font-family:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",monospace;
+    font-size:12px;
+    letter-spacing:.18em;
+    color:var(--accent2);
+    margin:0 0 8px;
+    font-weight:700;
+  }
+  h1{
+    font-size:clamp(26px,4vw,36px);
+    margin:0 0 8px;
+    letter-spacing:-.01em;
+  }
+  .sub{
+    margin:0;
+    color:var(--ink-soft);
+    font-size:14px;
+  }
+
+  .layout{
+    display:grid;
+    grid-template-columns:180px 1fr;
+    gap:28px;
+    align-items:start;
+  }
+  @media (max-width:720px){
+    .layout{grid-template-columns:1fr;}
+    .timeline-panel{order:2;}
+    .timeline{height:180px !important; width:100%;}
+    .timeline-panel .timeline-wrap{display:flex;}
+  }
+
+  .timeline-panel{
+    position:sticky;
+    top:24px;
+  }
+  .panel-label{
+    font-family:ui-monospace,"SF Mono",monospace;
+    font-size:11px;
+    letter-spacing:.16em;
+    color:var(--ink-soft);
+    margin:0 0 10px;
+    font-weight:700;
+  }
+  .timeline{
+    position:relative;
+    width:36px;
+    height:520px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:4px;
+    overflow:hidden;
+  }
+  .seg{
+    position:absolute;
+    left:0;right:0;
+    border-bottom:1px solid rgba(255,255,255,.35);
+  }
+  .seg-label{
+    position:absolute;
+    left:44px;
+    font-family:ui-monospace,monospace;
+    font-size:10px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+    transform:translateY(-50%);
+  }
+  .tick{
+    position:absolute;
+    left:0;width:8px;height:1px;
+    background:var(--ink-soft);
+    opacity:.5;
+  }
+  .tick-label{
+    position:absolute;
+    left:10px;
+    font-family:ui-monospace,monospace;
+    font-size:9px;
+    color:var(--ink-soft);
+    opacity:.6;
+    transform:translateY(-50%);
+  }
+  .now-line{
+    position:absolute;
+    left:-2px;right:-2px;
+    height:2px;
+    background:var(--ink);
+  }
+  .now-tag{
+    position:absolute;
+    left:44px;
+    font-family:ui-monospace,monospace;
+    font-size:9px;
+    font-weight:700;
+    color:var(--ink);
+    transform:translateY(-50%);
+  }
+
+  .legend{list-style:none;margin:14px 0 0;padding:0;font-size:12px;}
+  .legend li{
+    display:flex;align-items:center;gap:6px;
+    margin-bottom:6px;color:var(--ink-soft);
+  }
+  .dot{width:9px;height:9px;border-radius:2px;flex:none;}
+
+  .phases{display:flex;flex-direction:column;gap:20px;}
+  .phase{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:22px 24px;
+  }
+  .phase-head{
+    display:flex;align-items:baseline;gap:12px;
+    margin-bottom:16px;
+  }
+  .phase-num{
+    font-family:ui-monospace,monospace;
+    font-size:11px;
+    letter-spacing:.14em;
+    color:var(--accent2);
+    font-weight:700;
+  }
+  .phase-head h2{margin:0;font-size:18px;}
+
+  .field-row{display:flex;gap:20px;flex-wrap:wrap;}
+  .field-row label{
+    display:flex;flex-direction:column;gap:6px;
+    font-size:12px;color:var(--ink-soft);font-weight:600;
+  }
+  input[type="time"], input[type="text"], input[type="number"]{
+    font-family:ui-monospace,monospace;
+    font-size:14px;
+    padding:8px 10px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:#FCFDFE;
+    color:var(--ink);
+  }
+  input:focus-visible, button:focus-visible{
+    outline:2px solid var(--accent1);
+    outline-offset:1px;
+  }
+
+  .readout{
+    margin:14px 0 0;
+    font-family:ui-monospace,monospace;
+    font-size:13px;
+    color:var(--ink-soft);
+    padding-top:12px;
+    border-top:1px dashed var(--line);
+  }
+  .readout.danger{color:var(--danger);font-weight:700;}
+  .warn{
+    margin:10px 0 0;
+    font-size:12px;
+    color:var(--danger);
+  }
+
+  .task-form{display:flex;gap:8px;margin-bottom:14px;}
+  .task-form input{flex:1;}
+  .task-form button{
+    font-family:ui-monospace,monospace;
+    font-size:12px;font-weight:700;letter-spacing:.05em;
+    background:var(--ink);color:#fff;
+    border:none;border-radius:4px;padding:0 16px;cursor:pointer;
+  }
+  .task-form button:hover{background:var(--accent2);}
+
+  .task-list{list-style:none;margin:0;padding:0;}
+  .task-item{
+    display:flex;align-items:center;gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid var(--line);
+    font-size:14px;
+  }
+  .task-item.critical{color:var(--ink);font-weight:600;}
+  .task-item input[type="checkbox"]{width:16px;height:16px;accent-color:var(--accent1);flex:none;}
+  .task-item .txt{flex:1;}
+  .task-item .del{
+    border:none;background:none;color:var(--ink-soft);
+    cursor:pointer;font-size:14px;padding:2px 6px;
+  }
+  .task-item .del:hover{color:var(--danger);}
+
+  .hint{font-size:12px;color:var(--ink-soft);margin:12px 0 0;}
+  .hint strong{color:var(--accent2);}
+  .msg{
+    font-size:12px;color:var(--danger);margin:8px 0 0;
+    display:none;
+  }
+  .msg.show{display:block;}
+
+  .empty{
+    font-size:13px;color:var(--ink-soft);
+    padding:12px 0;
+  }
+
+  .alloc-row{
+    display:flex;align-items:center;gap:14px;
+    padding:12px 0;
+    border-bottom:1px solid var(--line);
+  }
+  .alloc-row:last-child{border-bottom:none;}
+  .alloc-dot{width:10px;height:10px;border-radius:2px;flex:none;}
+  .alloc-name{flex:1;font-size:14px;font-weight:600;}
+  .alloc-input-wrap{
+    display:flex;align-items:center;gap:6px;
+    font-family:ui-monospace,monospace;font-size:12px;color:var(--ink-soft);
+  }
+  .alloc-input-wrap input{width:64px;text-align:right;}
+  .alloc-time-wrap{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    font-family:ui-monospace,monospace;font-size:12px;color:var(--ink-soft);
+  }
+  .alloc-dash{color:var(--ink-soft);}
+  .alloc-dur{min-width:74px;text-align:right;font-weight:700;color:var(--ink);}
+  .alloc-dur.bad{color:var(--danger);}
+  .alloc-row{flex-wrap:wrap;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{transition:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="masthead">
+    <p class="eyebrow">MISSION TIMEPLANNER</p>
+    <h1>오늘의 비행 계획</h1>
+    <p class="sub">수면 확보 → 할 일 기록 → 필수 3가지 선정 → 시간 배분</p>
+  </div>
+
+  <div class="layout">
+    <aside class="timeline-panel">
+      <p class="panel-label">TIMELINE</p>
+      <div class="timeline-wrap">
+        <div class="timeline" id="timeline"></div>
+      </div>
+      <ul class="legend" id="legend"></ul>
+    </aside>
+
+    <main class="phases">
+
+      <section class="phase">
+        <div class="phase-head"><span class="phase-num">PHASE 01</span><h2>수면 · 기상</h2></div>
+        <div class="field-row">
+          <label>기상 시각
+            <input type="time" id="wakeTime" value="07:00">
+          </label>
+          <label>취침 시각
+            <input type="time" id="bedTime" value="23:00">
+          </label>
+        </div>
+        <p class="readout" id="awakeReadout"></p>
+        <p class="warn" id="timeWarn" style="display:none;">취침 시각은 기상 시각보다 늦어야 계산이 정확해요. (예: 기상 07:00 → 취침 23:00)</p>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head"><span class="phase-num">PHASE 02</span><h2>할 일 기록</h2></div>
+        <form class="task-form" id="taskForm">
+          <input type="text" id="taskInput" placeholder="오늘 해야 할 일을 입력">
+          <button type="submit">추가</button>
+        </form>
+        <ul class="task-list" id="taskList"></ul>
+        <p class="hint">체크박스로 <strong>반드시 해야 할 일 3가지</strong>만 고르세요.</p>
+        <p class="msg" id="limitMsg">이미 3개를 선택했어요. 다른 항목을 먼저 해제하세요.</p>
+      </section>
+
+      <section class="phase">
+        <div class="phase-head"><span class="phase-num">PHASE 03</span><h2>시간 배분</h2></div>
+        <div id="allocationList"></div>
+        <p class="readout" id="allocationReadout"></p>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  const ACCENTS = ['#E8720C','#B8511F','#8A3A15'];
+
+  let tasks = [];
+  let nextId = 1;
+
+  const wakeInput = document.getElementById('wakeTime');
+  const bedInput = document.getElementById('bedTime');
+  const taskForm = document.getElementById('taskForm');
+  const taskInput = document.getElementById('taskInput');
+  const taskListEl = document.getElementById('taskList');
+  const limitMsg = document.getElementById('limitMsg');
+  const allocationListEl = document.getElementById('allocationList');
+  const timeWarn = document.getElementById('timeWarn');
+
+  function timeToMin(t){
+    const [h,m] = t.split(':').map(Number);
+    return h*60+m;
+  }
+  function minToClock(m){
+    m = ((m % 1440) + 1440) % 1440;
+    const h = Math.floor(m/60).toString().padStart(2,'0');
+    const mm = Math.floor(m%60).toString().padStart(2,'0');
+    return `${h}:${mm}`;
+  }
+  function minToHM(m){
+    const h = Math.floor(m/60);
+    const mm = Math.round(m%60);
+    if(h<=0) return `${mm}분`;
+    return mm>0 ? `${h}시간 ${mm}분` : `${h}시간`;
+  }
+
+  function getWindow(){
+    const wakeMin = timeToMin(wakeInput.value || '07:00');
+    let bedMin = timeToMin(bedInput.value || '23:00');
+    const valid = bedMin > wakeMin;
+    if(!valid) bedMin = wakeMin + 60; // fallback so UI never breaks
+    return { wakeMin, bedMin, valid, awakeMinutes: bedMin - wakeMin };
+  }
+
+  function addTask(text){
+    tasks.push({ id: nextId++, text, critical:false });
+  }
+
+  function criticalCount(){
+    return tasks.filter(t=>t.critical).length;
+  }
+
+  taskForm.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const v = taskInput.value.trim();
+    if(!v) return;
+    addTask(v);
+    taskInput.value = '';
+    render();
+  });
+
+  function renderTaskList(){
+    taskListEl.innerHTML = '';
+    if(tasks.length===0){
+      taskListEl.innerHTML = '<li class="empty">아직 기록된 일이 없어요. 오늘 할 일을 적어보세요.</li>';
+      return;
+    }
+    tasks.forEach(t=>{
+      const li = document.createElement('li');
+      li.className = 'task-item' + (t.critical ? ' critical' : '');
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = t.critical;
+      cb.addEventListener('change', ()=>{
+        if(cb.checked && criticalCount()>=3){
+          cb.checked = false;
+          limitMsg.classList.add('show');
+          setTimeout(()=>limitMsg.classList.remove('show'), 2200);
+          return;
+        }
+        t.critical = cb.checked;
+        render();
+      });
+
+      const span = document.createElement('span');
+      span.className = 'txt';
+      span.textContent = t.text;
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.type = 'button';
+      del.textContent = '✕';
+      del.addEventListener('click', ()=>{
+        tasks = tasks.filter(x=>x.id!==t.id);
+        render();
+      });
+
+      li.append(cb, span, del);
+      taskListEl.appendChild(li);
+    });
+  }
+
+  function assignDefaultSlots(critical, wakeMin, bedMin){
+    const awake = Math.max(0, bedMin - wakeMin);
+    const share = Math.max(15, Math.floor(awake / Math.max(1, critical.length) / 5) * 5);
+    let cursor = wakeMin;
+    critical.forEach(t=>{
+      if(t.startMin === undefined || t.endMin === undefined){
+        t.startMin = cursor;
+        t.endMin = Math.min(bedMin, cursor + share);
+      }
+      cursor = Math.min(bedMin, t.endMin);
+    });
+  }
+
+  function mergeIntervals(intervals){
+    if(intervals.length===0) return [];
+    const sorted = intervals.slice().sort((a,b)=>a[0]-b[0]);
+    const merged = [sorted[0].slice()];
+    for(let i=1;i<sorted.length;i++){
+      const last = merged[merged.length-1];
+      if(sorted[i][0] <= last[1]){
+        last[1] = Math.max(last[1], sorted[i][1]);
+      } else {
+        merged.push(sorted[i].slice());
+      }
+    }
+    return merged;
+  }
+
+  function renderAllocation(){
+    const critical = tasks.filter(t=>t.critical);
+    const { wakeMin, bedMin } = getWindow();
+    allocationListEl.innerHTML = '';
+
+    if(critical.length===0){
+      allocationListEl.innerHTML = '<p class="empty">필수 할 일 3가지를 먼저 선택하세요.</p>';
+      document.getElementById('allocationReadout').textContent = '';
+      return;
+    }
+
+    assignDefaultSlots(critical, wakeMin, bedMin);
+
+    critical.forEach((t,i)=>{
+      const row = document.createElement('div');
+      row.className = 'alloc-row';
+
+      const dot = document.createElement('span');
+      dot.className = 'alloc-dot';
+      dot.style.background = ACCENTS[i] || ACCENTS[2];
+
+      const name = document.createElement('span');
+      name.className = 'alloc-name';
+      name.textContent = t.text;
+
+      const wrap = document.createElement('div');
+      wrap.className = 'alloc-time-wrap';
+
+      const startInput = document.createElement('input');
+      startInput.type = 'time';
+      startInput.value = minToClock(t.startMin);
+      startInput.addEventListener('input', ()=>{
+        t.startMin = timeToMin(startInput.value);
+        render();
+      });
+
+      const dash = document.createElement('span');
+      dash.className = 'alloc-dash';
+      dash.textContent = '~';
+
+      const endInput = document.createElement('input');
+      endInput.type = 'time';
+      endInput.value = minToClock(t.endMin);
+      endInput.addEventListener('input', ()=>{
+        t.endMin = timeToMin(endInput.value);
+        render();
+      });
+
+      const dur = document.createElement('span');
+      dur.className = 'alloc-dur';
+      const duration = t.endMin - t.startMin;
+      dur.textContent = duration > 0 ? minToHM(duration) : '⚠ 시간 오류';
+      if(duration <= 0) dur.classList.add('bad');
+
+      wrap.append(startInput, dash, endInput, dur);
+      row.append(dot, name, wrap);
+      allocationListEl.appendChild(row);
+    });
+
+    const readout = document.getElementById('allocationReadout');
+    const issues = [];
+
+    critical.forEach(t=>{
+      if(t.endMin <= t.startMin){
+        issues.push(`"${t.text}"의 종료 시각이 시작 시각보다 빨라요`);
+      } else if(t.startMin < wakeMin || t.endMin > bedMin){
+        issues.push(`"${t.text}"이 깨어있는 시간(${minToClock(wakeMin)}~${minToClock(bedMin)}) 밖에 있어요`);
+      }
+    });
+
+    const validSorted = critical
+      .filter(t=>t.endMin > t.startMin)
+      .sort((a,b)=>a.startMin - b.startMin);
+    for(let i=0; i<validSorted.length-1; i++){
+      if(validSorted[i].endMin > validSorted[i+1].startMin){
+        issues.push(`"${validSorted[i].text}"과 "${validSorted[i+1].text}"의 시간이 겹쳐요`);
+      }
+    }
+
+    const merged = mergeIntervals(validSorted.map(t=>[
+      Math.max(wakeMin, t.startMin), Math.min(bedMin, t.endMin)
+    ]));
+    const coverage = merged.reduce((s,[a,b])=>s+(b-a),0);
+    const awakeMinutes = bedMin - wakeMin;
+    const remaining = Math.max(0, awakeMinutes - coverage);
+
+    if(issues.length > 0){
+      readout.className = 'readout danger';
+      readout.textContent = '⚠ ' + issues.join(' · ');
+    } else {
+      readout.className = 'readout';
+      readout.textContent = `배분 완료: ${minToHM(coverage)} 사용 · 여유 ${minToHM(remaining)} 남음`;
+    }
+  }
+
+  function renderReadout(){
+    const { wakeMin, bedMin, valid, awakeMinutes } = getWindow();
+    timeWarn.style.display = valid ? 'none' : 'block';
+    document.getElementById('awakeReadout').textContent =
+      `가용시간(깨어있는 시간): ${minToHM(awakeMinutes)}  (${minToClock(wakeMin)} ~ ${minToClock(bedMin)})`;
+  }
+
+  function renderTimeline(){
+    const { wakeMin, bedMin } = getWindow();
+    const critical = tasks.filter(t=>t.critical && t.endMin > t.startMin);
+    const timelineEl = document.getElementById('timeline');
+    const legendEl = document.getElementById('legend');
+    timelineEl.innerHTML = '';
+    legendEl.innerHTML = '';
+
+    const DAY = 1440;
+    const pct = (m)=> (m/DAY*100);
+
+    function addSeg(top, height, color, warn){
+      if(height<=0) return;
+      const seg = document.createElement('div');
+      seg.className = 'seg';
+      seg.style.top = pct(top)+'%';
+      seg.style.height = pct(height)+'%';
+      seg.style.background = color;
+      if(warn) seg.style.boxShadow = 'inset 0 0 0 2px var(--danger)';
+      timelineEl.appendChild(seg);
+    }
+
+    // sleep before wake / after bedtime
+    addSeg(0, wakeMin, 'var(--sleep)');
+    addSeg(bedMin, DAY-bedMin, 'var(--sleep)');
+
+    // detect overlaps between critical tasks (by their own real start/end time)
+    const sorted = [...critical].sort((a,b)=>a.startMin-b.startMin);
+    const overlapping = new Set();
+    for(let i=0; i<sorted.length-1; i++){
+      if(sorted[i].endMin > sorted[i+1].startMin){
+        overlapping.add(sorted[i].id);
+        overlapping.add(sorted[i+1].id);
+      }
+    }
+
+    // each task block placed at its real start~end time (clipped to awake window)
+    critical.forEach((t,i)=>{
+      const s = Math.max(wakeMin, t.startMin);
+      const e = Math.min(bedMin, t.endMin);
+      addSeg(s, e-s, ACCENTS[i] || ACCENTS[2], overlapping.has(t.id));
+    });
+
+    // free time = gaps inside the awake window not covered by any task
+    const merged = mergeIntervals(sorted.map(t=>[
+      Math.max(wakeMin, t.startMin), Math.min(bedMin, t.endMin)
+    ]));
+    let cursor = wakeMin;
+    merged.forEach(([s,e])=>{
+      if(s > cursor) addSeg(cursor, s-cursor, 'var(--free)');
+      cursor = Math.max(cursor, e);
+    });
+    if(cursor < bedMin) addSeg(cursor, bedMin-cursor, 'var(--free)');
+
+    // ticks every 3 hours
+    for(let h=0; h<=24; h+=3){
+      const tick = document.createElement('div');
+      tick.className = 'tick';
+      tick.style.top = pct(h*60)+'%';
+      timelineEl.appendChild(tick);
+      const lab = document.createElement('div');
+      lab.className = 'tick-label';
+      lab.style.top = pct(h*60)+'%';
+      lab.textContent = String(h).padStart(2,'0');
+      timelineEl.appendChild(lab);
+    }
+
+    // now line
+    const now = new Date();
+    const nowMin = now.getHours()*60 + now.getMinutes();
+    const nowLine = document.createElement('div');
+    nowLine.className = 'now-line';
+    nowLine.style.top = pct(nowMin)+'%';
+    timelineEl.appendChild(nowLine);
+
+    // legend
+    function legendItem(color, text){
+      const li = document.createElement('li');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = color;
+      li.append(dot, document.createTextNode(text));
+      legendEl.appendChild(li);
+    }
+    const awakeMinutes = bedMin - wakeMin;
+    const coverage = merged.reduce((s,[a,b])=>s+(b-a),0);
+    legendItem('#9AB0C9', `수면 · ${minToHM(DAY-awakeMinutes)}`);
+    critical.forEach((t,i)=>{
+      legendItem(ACCENTS[i] || ACCENTS[2], `${t.text} · ${minToClock(t.startMin)}~${minToClock(t.endMin)}`);
+    });
+    legendItem('#D8DEE6', `여유 · ${minToHM(Math.max(0, awakeMinutes-coverage))}`);
+  }
+
+  function render(){
+    renderReadout();
+    renderTaskList();
+    renderAllocation();
+    renderTimeline();
+  }
+
+  wakeInput.addEventListener('input', render);
+  bedInput.addEventListener('input', render);
+
+  // seed with a couple of example tasks so the UI isn't empty on first load
+  addTask('보고서 초안 작성');
+  addTask('운동 30분');
+  addTask('이메일 정리');
+  render();
+</script>
+</body>
+</html>
