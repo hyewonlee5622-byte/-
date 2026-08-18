@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS routine_item (
   preferred_time  INTEGER,              -- 선호 시작 시각, 분 단위 (없으면 NULL)
   sort_order      INTEGER NOT NULL DEFAULT 0,
   is_active       INTEGER NOT NULL DEFAULT 1,
+  is_locked       INTEGER NOT NULL DEFAULT 0,   -- 🔒 미루기 금지
   FOREIGN KEY (routine_id)  REFERENCES routine(routine_id)   ON DELETE CASCADE,
   FOREIGN KEY (category_id) REFERENCES category(category_id) ON DELETE SET NULL
 );

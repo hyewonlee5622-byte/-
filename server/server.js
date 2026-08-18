@@ -9,8 +9,20 @@ const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 const db = new DatabaseSync(DB_PATH);
 db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
+// 이미 만들어진 DB에 새 컬럼을 추가하는 간단한 마이그레이션 (이미 있으면 조용히 무시)
+try{ db.exec('ALTER TABLE routine_item ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0'); } catch(e){}
+
 const app = express();
 app.use(express.json());
+
+// Live Server 등 다른 포트(origin)에서 오는 요청을 허용
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if(req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 // ---------- 공용 헬퍼 ----------
 function row(stmt, ...params) {
@@ -143,6 +155,94 @@ app.post('/api/categories', (req, res) => {
     'INSERT INTO category (name, color, icon, sort_order) VALUES (?, ?, ?, ?)'
   ).run(name, color, icon, sort_order);
   res.status(201).json(row(db.prepare('SELECT * FROM category WHERE category_id = ?'), result.lastInsertRowid));
+});
+
+// ============================================
+// ROUTINES (설정 페이지 - 반복되는 일정을 폴더처럼 묶어서 저장)
+// ============================================
+
+// GET /api/routines -> 모든 루틴 + 각 루틴에 속한 아이템들을 함께 반환
+app.get('/api/routines', (req, res) => {
+  const routines = all(db.prepare('SELECT * FROM routine ORDER BY routine_id ASC'));
+  const items = all(db.prepare('SELECT * FROM routine_item ORDER BY sort_order ASC, routine_item_id ASC'));
+  const result = routines.map(r => ({
+    ...r,
+    items: items.filter(it => it.routine_id === r.routine_id)
+  }));
+  res.json(result);
+});
+
+// POST /api/routines -> 새 루틴(폴더) 생성
+app.post('/api/routines', (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name은 필수예요.' });
+  const result = db.prepare('INSERT INTO routine (name) VALUES (?)').run(name);
+  const created = row(db.prepare('SELECT * FROM routine WHERE routine_id = ?'), result.lastInsertRowid);
+  res.status(201).json({ ...created, items: [] });
+});
+
+// PUT /api/routines/:id -> 루틴 이름 수정 / 켜고 끄기(is_active)
+app.put('/api/routines/:id', (req, res) => {
+  const { id } = req.params;
+  const existing = row(db.prepare('SELECT * FROM routine WHERE routine_id = ?'), id);
+  if (!existing) return res.status(404).json({ error: '해당 루틴을 찾을 수 없어요.' });
+
+  const merged = { ...existing, ...req.body };
+  db.prepare(`
+    UPDATE routine SET name = ?, is_active = ?, updated_at = datetime('now')
+    WHERE routine_id = ?
+  `).run(merged.name, merged.is_active ? 1 : 0, id);
+
+  res.json(row(db.prepare('SELECT * FROM routine WHERE routine_id = ?'), id));
+});
+
+// DELETE /api/routines/:id -> 루틴 삭제 (안의 아이템들도 같이 삭제됨)
+app.delete('/api/routines/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM routine WHERE routine_id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: '해당 루틴을 찾을 수 없어요.' });
+  res.status(204).send();
+});
+
+// POST /api/routines/:id/items -> 루틴 안에 일정 아이템 추가
+app.post('/api/routines/:id/items', (req, res) => {
+  const routineId = req.params.id;
+  const routineExists = row(db.prepare('SELECT routine_id FROM routine WHERE routine_id = ?'), routineId);
+  if (!routineExists) return res.status(404).json({ error: '해당 루틴을 찾을 수 없어요.' });
+
+  const { name, preferred_time, duration, is_locked = 0 } = req.body;
+  if (!name || preferred_time == null || duration == null) {
+    return res.status(400).json({ error: 'name, preferred_time, duration은 필수예요.' });
+  }
+
+  const result = db.prepare(`
+    INSERT INTO routine_item (routine_id, name, preferred_time, duration, is_locked)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(routineId, name, preferred_time, duration, is_locked ? 1 : 0);
+
+  res.status(201).json(row(db.prepare('SELECT * FROM routine_item WHERE routine_item_id = ?'), result.lastInsertRowid));
+});
+
+// PUT /api/routine-items/:id -> 아이템 수정
+app.put('/api/routine-items/:id', (req, res) => {
+  const { id } = req.params;
+  const existing = row(db.prepare('SELECT * FROM routine_item WHERE routine_item_id = ?'), id);
+  if (!existing) return res.status(404).json({ error: '해당 항목을 찾을 수 없어요.' });
+
+  const merged = { ...existing, ...req.body };
+  db.prepare(`
+    UPDATE routine_item
+    SET name = ?, preferred_time = ?, duration = ?, is_active = ?
+    WHERE routine_item_id = ?
+  `).run(merged.name, merged.preferred_time, merged.duration, merged.is_active ? 1 : 0, id);
+
+  res.json(row(db.prepare('SELECT * FROM routine_item WHERE routine_item_id = ?'), id));
+});
+
+// DELETE /api/routine-items/:id
+app.delete('/api/routine-items/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM routine_item WHERE routine_item_id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: '해당 항목을 찾을 수 없어요.' });
+  res.status(204).send();
 });
 
 const PORT = process.env.PORT || 3000;

@@ -17,17 +17,15 @@
       </div>
       <div class="result-head-actions">
         <button type="button" id="saveImageBtn" class="btn-ghost">📷 이미지로 저장</button>
-        <a href="main.html" class="btn-ghost">← 편집 화면</a>
+        <a href="settings.html" class="btn-ghost">⚙ 루틴 설정</a>
+        <a href="planning.html" class="btn-ghost">다음날 일정</a>
       </div>
     </div>
     <p class="hint" style="margin:0 0 14px;">일정을 클릭하면 수정할 수 있어요.</p>
 
     <div class="grid-wrap">
       <div class="grid-col-header" id="gridColHeader"></div>
-      <div class="grid-body">
-        <div class="grid-hours" id="gridHours"></div>
-        <div class="grid-track" id="gridTrack"></div>
-      </div>
+      <div class="grid-table" id="gridTable"></div>
     </div>
   </section>
 </div>
@@ -56,8 +54,7 @@
     <div class="modal-field">
       <span class="modal-field-label">표시</span>
       <div class="modal-chip-row">
-        <button type="button" class="chip-toggle" id="editCriticalChip">★ Top3</button>
-        <button type="button" class="chip-toggle" id="editLockedChip">🔒 고정</button>
+        <button type="button" class="chip-toggle" id="editLockedChip">🔒 미루기 금지</button>
       </div>
     </div>
 

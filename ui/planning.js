@@ -230,9 +230,15 @@ function renderAllocation(){
   const awakeMinutes = bedMin - wakeMin;
   const remaining = Math.max(0, awakeMinutes - coverage);
 
-      if(issues.length > 0){
+    const top3Ready = criticalCount() === 3;
+
+    if(issues.length > 0){
       readout.className = 'readout danger';
       readout.textContent = '⚠ ' + issues.join(' · ');
+      completeBtn.disabled = true;
+    } else if(!top3Ready){
+      readout.className = 'readout danger';
+      readout.textContent = `⚠ Top3를 3개 선택해야 완료할 수 있어요 (지금 ${criticalCount()}개 선택됨)`;
       completeBtn.disabled = true;
     } else {
       readout.className = 'readout';
@@ -240,7 +246,6 @@ function renderAllocation(){
       completeBtn.disabled = false;
     }
   }
-
 function renderReadout(){
   const { wakeMin, bedMin, valid, awakeMinutes } = getWindow();
   timeWarn.style.display = valid ? 'none' : 'block';
@@ -347,28 +352,71 @@ bedInput.addEventListener('input', render);
 normalizeClockInput(wakeInput);
 normalizeClockInput(bedInput);
 
-// 완료 버튼: 지금 데이터를 저장하고 schedule.html로 실제 페이지 이동
+// 이 페이지와 schedule.html이 같은 날짜를 기준으로 저장/조회하도록 고정
+const PLAN_DATE = getPlanDate();
+
+// 완료 버튼: 지금 데이터를 서버에 저장하고 schedule.html로 실제 페이지 이동
 const completeBtn = document.getElementById('completeBtn');
-completeBtn.addEventListener('click', ()=>{
-  savePlannerState(wakeInput.value, bedInput.value, tasks);
-  window.location.href = 'schedule.html';
+completeBtn.addEventListener('click', async ()=>{
+  const originalText = completeBtn.textContent;
+  completeBtn.disabled = true;
+  completeBtn.textContent = '저장 중...';
+  try{
+    await savePlannerState(PLAN_DATE, wakeInput.value, bedInput.value, tasks);
+    window.location.href = 'schedule.html';
+  } catch(e){
+    alert('저장에 실패했어요: ' + e.message + '\n서버(npm start)가 켜져 있는지 확인해주세요.');
+    completeBtn.textContent = originalText;
+    render();
+  }
 });
 
 // ---- 초기 로딩: 저장된 데이터가 있으면 복원, 없으면 기본값으로 시작 ----
-(function init(){
-  const saved = loadPlannerState();
+(async function init(){
+  let saved = null;
+  try{
+    saved = await loadPlannerState(PLAN_DATE);
+  } catch(e){
+    alert('서버에서 데이터를 불러오지 못했어요: ' + e.message + '\n서버(npm start)가 켜져 있는지 확인해주세요.');
+  }
+
   if(saved && saved.tasks.length > 0){
     tasks = saved.tasks;
     nextId = Math.max(0, ...tasks.map(t=>t.id)) + 1;
     wakeInput.value = saved.wake || '07:00';
     bedInput.value = saved.bed || '23:00';
-  } else {
-    addTask('다음날 일정 정리');
-    const seed = tasks[tasks.length - 1];
-    const { bedMin } = getWindow();
-    seed.startMin = bedMin - 30;
-    seed.endMin = bedMin;
-    seed.anchorToBedtime = true;
+    } else {
+    let routines = [];
+    try{
+      routines = await apiGet('/routines');
+    } catch(e){
+      // 루틴을 못 불러와도 플래너 자체는 계속 쓸 수 있어야 하니 조용히 넘어감
+    }
+
+    const activeItems = routines
+      .filter(r => r.is_active)
+      .flatMap(r => r.items.filter(it => it.is_active));
+
+    if(activeItems.length > 0){
+      activeItems.forEach(it => {
+        tasks.push({
+          id: nextId++,
+          text: it.name,
+          critical: false,
+          locked: false,
+          startMin: it.preferred_time,
+          endMin: it.preferred_time + it.duration,
+          routineItemId: it.routine_item_id
+        });
+      });
+    } else {
+      addTask('다음날 일정 정리');
+      const seed = tasks[tasks.length - 1];
+      const { bedMin } = getWindow();
+      seed.startMin = bedMin - 30;
+      seed.endMin = bedMin;
+      seed.anchorToBedtime = true;
+    }
   }
   render();
 })();
