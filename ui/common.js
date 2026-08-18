@@ -1,9 +1,28 @@
 // ---- main.html / schedule.html이 공통으로 쓰는 순수 함수들 ----
 
 function timeToMin(t){
-  const parts = String(t || '').split(':');
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
+  const raw = String(t || '').trim();
+
+  if(raw.includes(':')){
+    const parts = raw.split(':');
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    if(isNaN(h) || isNaN(m)) return 0;
+    return h*60 + m;
+  }
+
+  // 콜론 없이 숫자만 입력한 경우: 7 → 07:00, 730 → 07:30, 1930 → 19:30
+  const digits = raw.replace(/\D/g, '');
+  if(digits.length === 0) return 0;
+
+  let h, m;
+  if(digits.length <= 2){
+    h = parseInt(digits, 10);
+    m = 0;
+  } else {
+    m = parseInt(digits.slice(-2), 10);
+    h = parseInt(digits.slice(0, -2), 10);
+  }
   if(isNaN(h) || isNaN(m)) return 0;
   return h*60 + m;
 }

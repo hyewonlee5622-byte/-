@@ -168,7 +168,7 @@ function renderAllocation(){
     startInput.maxLength = 5;
     startInput.value = minToClock(t.startMin);
     startInput.disabled = !!t.locked;
-    startInput.addEventListener('input', ()=>{
+    startInput.addEventListener('change', ()=>{
       t.startMin = timeToMin(startInput.value);
       render();
     });
@@ -186,7 +186,7 @@ function renderAllocation(){
     endInput.maxLength = 5;
     endInput.value = minToClock(t.endMin);
     endInput.disabled = !!t.locked;
-    endInput.addEventListener('input', ()=>{
+    endInput.addEventListener('change', ()=>{
       t.endMin = timeToMin(endInput.value);
       render();
     });
@@ -230,14 +230,16 @@ function renderAllocation(){
   const awakeMinutes = bedMin - wakeMin;
   const remaining = Math.max(0, awakeMinutes - coverage);
 
-  if(issues.length > 0){
-    readout.className = 'readout danger';
-    readout.textContent = '⚠ ' + issues.join(' · ');
-  } else {
-    readout.className = 'readout';
-    readout.textContent = `${tasks.length}개 일정 배치 완료: ${minToHM(coverage)} 사용 · 여유 ${minToHM(remaining)} 남음`;
+      if(issues.length > 0){
+      readout.className = 'readout danger';
+      readout.textContent = '⚠ ' + issues.join(' · ');
+      completeBtn.disabled = true;
+    } else {
+      readout.className = 'readout';
+      readout.textContent = `${tasks.length}개 일정 배치 완료: ${minToHM(coverage)} 사용 · 여유 ${minToHM(remaining)} 남음`;
+      completeBtn.disabled = false;
+    }
   }
-}
 
 function renderReadout(){
   const { wakeMin, bedMin, valid, awakeMinutes } = getWindow();
