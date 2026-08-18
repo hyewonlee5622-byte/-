@@ -1,0 +1,15 @@
+{
+  "name": "timeplanner-server",
+  "version": "1.0.0",
+  "description": "미션 타임플래너 백엔드 API (Express + node:sqlite)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
