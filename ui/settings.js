@@ -40,6 +40,26 @@ function renderRoutines(){
       try{
         await apiSend('PUT', `/routines/${r.routine_id}`, { name: r.name, is_active: toggle.checked ? 1 : 0 });
         r.is_active = toggle.checked ? 1 : 0;
+
+        // 루틴을 끄는 순간, 이미 계획(PLAN_DATE)에 반영된 이 루틴의 일정이 있으면 즉시 정리.
+        // (여기서 안 지우면, DB에 예전 top3/시간 값이 남아있다가 나중에 루틴을 다시 켰을 때
+        //  planning.html이 그 오래된 값을 그대로 물고 들어오게 됨)
+        if(!toggle.checked){
+          const routineItemIds = new Set(r.items.map(it => it.routine_item_id));
+          if(routineItemIds.size > 0){
+            try{
+              const planDate = getPlanDate();
+              const events = await apiGet(`/events?date=${planDate}`);
+              const toDelete = events.filter(ev => routineItemIds.has(ev.routine_item_id));
+              for(const ev of toDelete){
+                await apiSend('DELETE', `/events/${ev.event_id}`);
+              }
+            } catch(e){
+              // 정리에 실패해도 루틴 켜고 끄는 기능 자체는 계속 동작해야 하니 조용히 넘어감
+            }
+          }
+        }
+
         renderRoutines();
       } catch(e){
         alert('변경에 실패했어요: ' + e.message);

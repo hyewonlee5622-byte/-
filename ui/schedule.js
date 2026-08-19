@@ -49,14 +49,18 @@ function renderGridTimetable(){
     headerEl.appendChild(span);
   }
 
-  // 칸[cellStart,cellEnd]과 구간[blockStart,blockEnd]이 걸쳐있으면(경계에 닿기만 해도) true
-  function hits(blockStart, blockEnd, cellStart, cellEnd){
-    return cellStart < blockEnd && blockStart <= cellEnd;
+  function typeAt(mid){
+    const hitTask = scheduled.find(t => mid >= t.startMin && mid < t.endMin);
+    if(hitTask) return { kind:'task', task: hitTask };
+    if(mid >= wakeMin && mid < bedMin) return { kind:'free' };
+    return { kind:'sleep' };
   }
 
   for(let h=gridStartHour; h<gridEndHour; h++){
     const rowIndex = h - gridStartHour + 1; // 1-based grid row
     const isFirstRow = (rowIndex === 1);
+    const rowStart = h*60;
+    const rowEnd = rowStart + 60;
 
     const hourCell = document.createElement('div');
     hourCell.className = 'grid-hour-cell' + (isFirstRow ? ' first-row' : '');
@@ -65,78 +69,105 @@ function renderGridTimetable(){
     hourCell.style.gridColumn = 1;
     tableEl.appendChild(hourCell);
 
-    // 이 행의 6칸(:10~:60) 각각이 어떤 상태인지 먼저 계산
-    const slots = [];
-    for(let i=0; i<6; i++){
-      const m = (i+1) * 10;
-      const cellEnd = h*60 + m;
-      const cellStart = cellEnd - 10;
-      const hitTask = scheduled.find(t => hits(t.startMin, t.endMin, cellStart, cellEnd));
-      if(hitTask){
-        slots.push({ key: 'task:' + hitTask.id, task: hitTask, cellStart, cellEnd });
-      } else if(hits(wakeMin, bedMin, cellStart, cellEnd)){
-        slots.push({ key: 'free', cellStart, cellEnd });
-      } else {
-        slots.push({ key: 'sleep', cellStart, cellEnd });
-      }
+    // 이 한 시간(행) 안에서 상태가 바뀌는 지점(일정 시작/끝, 기상/취침)을 전부 모아
+    // 10분 칸 단위가 아니라 "한 행 전체"를 기준으로 구간을 나눈다.
+    // → 같은 일정이 칸을 넘나들어도 하나의 배경으로 이어지기 때문에 중간에 선이 생기지 않는다.
+    const innerPoints = [];
+    scheduled.forEach(t=>{
+      if(t.startMin > rowStart && t.startMin < rowEnd) innerPoints.push(t.startMin);
+      if(t.endMin   > rowStart && t.endMin   < rowEnd) innerPoints.push(t.endMin);
+    });
+    if(wakeMin > rowStart && wakeMin < rowEnd) innerPoints.push(wakeMin);
+    if(bedMin  > rowStart && bedMin  < rowEnd) innerPoints.push(bedMin);
+    const points = Array.from(new Set([rowStart, rowEnd, ...innerPoints])).sort((a,b)=>a-b);
+
+    const segments = [];
+    for(let k=0; k<points.length-1; k++){
+      const segStart = points[k], segEnd = points[k+1];
+      const { kind, task } = typeAt((segStart+segEnd)/2);
+      segments.push({ segStart, segEnd, kind, task: kind === 'task' ? task : null });
     }
 
-    // 같은 상태가 이어지는 칸들을 하나로 합쳐서 그리기
-    let i = 0;
-    while(i < 6){
-      let j = i;
-      while(j + 1 < 6 && slots[j+1].key === slots[i].key) j++;
-      const run = slots[i];
-      const span = j - i + 1;
+    // 행 전체를 덮는 배경 하나 (하나의 div = 절대 내부에 선이 생길 수 없음)
+    const rowBg = document.createElement('div');
+    rowBg.className = 'grid-cell' + (isFirstRow ? ' first-row' : '');
+    rowBg.style.gridRow = rowIndex;
+    rowBg.style.gridColumn = '2 / span 6';
+    rowBg.style.position = 'relative';
 
-      const cell = document.createElement('div');
-      cell.className = 'grid-cell' + (isFirstRow ? ' first-row' : '');
-      cell.style.gridRow = rowIndex;
-      cell.style.gridColumn = `${2 + i} / span ${span}`;
+    const stops = segments.map(seg=>{
+      const color = seg.kind === 'task' ? colorForTask(seg.task)
+        : seg.kind === 'sleep' ? 'var(--sleep)' : 'transparent';
+      const startPct = (seg.segStart - rowStart) / 60 * 100;
+      const endPct = (seg.segEnd - rowStart) / 60 * 100;
+      return `${color} ${startPct}%, ${color} ${endPct}%`;
+    });
+    rowBg.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
 
-      if(run.key === 'free'){
-        // 여유 시간은 배경색 없이 빈 칸으로 표시
-      } else if(run.key === 'sleep'){
-        cell.style.background = 'var(--sleep)';
-      } else {
-        const t = run.task;
-        cell.style.background = colorForTask(t);
-        cell.classList.add('clickable');
-        cell.tabIndex = 0;
-        cell.title = `${t.text} (클릭해서 수정)`;
-        cell.addEventListener('click', ()=> openEditModal(t.id));
-        cell.addEventListener('keydown', (e)=>{
-          if(e.key === 'Enter' || e.key === ' '){
-            e.preventDefault();
-            openEditModal(t.id);
-          }
-        });
-
-        // 그 일정이 실제로 시작하는 칸에만 이름을 표시 (다음 행으로 이어져도 중복 표시 안 함)
-        if(run.cellStart <= t.startMin){
-          const label = document.createElement('span');
-          label.className = 'gc-label';
-          label.textContent = (t.locked ? '🔒' : '') + (t.critical ? '★ ' : '') + t.text;
-          cell.appendChild(label);
-        }
-      }
-
-      tableEl.appendChild(cell);
-
-      // 병합된 칸 안에도 10분 단위 구분선을 표시하되, 같은 일정끼리는 하나로 이어져 보이게 생략
-      const isTaskRun = run.key.startsWith('task:');
-      if(span > 1 && !isTaskRun){
-        for(let k=1; k<span; k++){
-          const tick = document.createElement('div');
-          tick.className = 'gc-tick';
-          tick.style.left = (k/span*100) + '%';
-          tick.style.background = 'var(--line)';
-          cell.appendChild(tick);
-        }
-      }
-
-      i = j + 1;
+    // 표의 10분 단위 구분선(10/20/30/40/50분 지점) — 일정 색깔 위에는 그리지 않고,
+    // 여유시간·수면 구간 위에만 표시 (일정 색을 가리거나 그 위에 얹혀 보이지 않게)
+    for(let k=1; k<6; k++){
+      const posMin = rowStart + k*10;
+      const { kind } = typeAt(posMin);
+      if(kind === 'task') continue;
+      const tick = document.createElement('div');
+      tick.className = 'gc-tick';
+      tick.style.left = (k/6*100) + '%';
+      tick.style.background = 'var(--line)';
+      tick.style.pointerEvents = 'none';
+      rowBg.appendChild(tick);
     }
+
+    // 각 일정 구간마다: 정확히 그 구간에만 걸리는 클릭 영역 + (시작 지점이면) 이름 라벨
+    // 10분 칸 단위가 아니라 실제 %로 배치하므로, 두 일정이 붙어있어도 각자 클릭 영역이 정확히 나뉜다.
+    segments.forEach(seg=>{
+      if(seg.kind !== 'task') return;
+      const t = seg.task;
+      const startPct = (seg.segStart - rowStart) / 60 * 100;
+      const endPct = (seg.segEnd - rowStart) / 60 * 100;
+
+      const hit = document.createElement('div');
+      hit.className = 'gc-hit';
+      hit.style.position = 'absolute';
+      hit.style.top = '0';
+      hit.style.bottom = '0';
+      hit.style.left = startPct + '%';
+      hit.style.width = (endPct - startPct) + '%';
+      hit.style.cursor = 'pointer';
+      hit.tabIndex = 0;
+      hit.title = `${t.text} (클릭해서 수정)`;
+      hit.addEventListener('click', ()=> openEditModal(t.id));
+      hit.addEventListener('keydown', (e)=>{
+        if(e.key === 'Enter' || e.key === ' '){
+          e.preventDefault();
+          openEditModal(t.id);
+        }
+      });
+      rowBg.appendChild(hit);
+
+      // 이 일정이 실제로 이 행에서 "시작"할 때만 이름 표시 (여러 시간에 걸쳐도 한 번만)
+      if(t.startMin >= rowStart && t.startMin < rowEnd){
+        const label = document.createElement('span');
+        label.className = 'gc-label';
+        // 기존 CSS(.grid-cell)의 flex 중앙정렬은 "칸=그 일정" 이었을 때 기준이라,
+        // 지금은 행 전체(6칸) 안에 놓이므로 구간의 가운데 지점을 직접 계산해서 배치한다.
+        const centerPct = (startPct + endPct) / 2;
+        label.style.position = 'absolute';
+        label.style.left = centerPct + '%';
+        label.style.top = '50%';
+        label.style.transform = 'translate(-50%, -50%)';
+        label.style.width = 'auto';
+        label.style.maxWidth = 'none';
+        label.style.textAlign = 'center';
+        label.style.whiteSpace = 'nowrap';
+        label.style.pointerEvents = 'none';
+        label.style.zIndex = '2';
+        label.textContent = (t.locked ? '🔒' : '') + (t.critical ? '★ ' : '') + t.text;
+        rowBg.appendChild(label);
+      }
+    });
+
+    tableEl.appendChild(rowBg);
   }
 }
 
@@ -219,6 +250,17 @@ document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
     showEditWarn('종료 시각이 시작 시각보다 늦어야 해요.');
     return;
   }
+
+  // 다른 일정(자기 자신은 제외)과 시간이 겹치면 저장하지 않음
+  const overlapping = tasks.find(other =>
+    other.id !== t.id && other.endMin > other.startMin &&
+    newStart < other.endMin && other.startMin < newEnd
+  );
+  if(overlapping){
+    showEditWarn(`"${overlapping.text}"(${minToClock(overlapping.startMin)}~${minToClock(overlapping.endMin)})과 시간이 겹쳐요. 겹치지 않게 조정해주세요.`);
+    return;
+  }
+
   const saveBtn = document.getElementById('editSaveBtn');
   saveBtn.disabled = true;
 
@@ -227,7 +269,8 @@ document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
     startMin: newStart,
     endMin: newEnd,
     critical: t.critical,
-    locked: editLockedChip.classList.contains('active')
+    locked: editLockedChip.classList.contains('active'),
+    routineItemId: t.routineItemId
   }, PLAN_DATE);
 
   try{

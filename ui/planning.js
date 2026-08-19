@@ -412,20 +412,19 @@ completeBtn.addEventListener('click', async ()=>{
   // 루틴(또는 그 안의 항목)이 꺼져있으면, 거기서 온 일정은 자동으로 제거
   tasks = tasks.filter(t => !t.routineItemId || activeItemMap.has(t.routineItemId));
 
-  // 루틴에서 온 일정은 매번 루틴의 현재 설정 기준으로 다시 맞춘다:
-  // - top3(critical) 여부는 루틴 on/off와 무관하게 절대 기억하지 않고 항상 false로 리셋
-  // - 잠금(locked)은 루틴에 설정된 "미루기 금지" 값을 그대로 강제 적용
-  // - routineLocked 플래그로 표시해서, 시간 배분 화면에서 사용자가 직접 못 바꾸게 함
+  // 루틴에서 온 일정 중, "계속 켜져 있어서 여전히 남아있는" 것들은 top3는 그대로 두고
+  // 잠금(locked)만 루틴의 현재 "미루기 금지" 설정에 맞춰 다시 맞춘다.
+  // (top3는 루틴이 계속 켜져 있는 동안엔 정상적으로 저장되어야 하고,
+  //  꺼졌다가 다시 켜져서 "새로" 추가될 때만 아래에서 false로 시작한다)
   tasks.forEach(t => {
     if(!t.routineItemId) return;
     const it = activeItemMap.get(t.routineItemId);
     if(!it) return;
-    t.critical = false;
     t.locked = !!it.is_locked;
     t.routineLocked = !!it.is_locked;
   });
 
-  // 켜져 있는 루틴 항목 중, 아직 목록에 없는 것만 새로 추가
+  // 켜져 있는 루틴 항목 중, 아직 목록에 없는 것만 새로 추가 (여기서만 top3 false로 시작)
   const existingRoutineItemIds = new Set(
     tasks.filter(t => t.routineItemId).map(t => t.routineItemId)
   );
