@@ -1,8 +1,10 @@
 const ACCENTS = ['#E8720C','#B8511F','#8A3A15'];
 const MUTED = ['#5B7A99','#7C8CA3','#4E6580','#8B98AC'];
 
-// schedule.html은 "오늘" 실행할 시간표를 보여주는 화면 (planning.html은 "내일"을 계획하는 화면)
-const PLAN_DATE = getTodayDate();
+// schedule.html은 "지금 활성화된 하루"의 시간표를 보여주는 화면.
+// 자정이 아니라 "그날의 기상 시각"을 하루의 경계로 보기 때문에, 서버에 물어봐야 해서 비동기로 계산한다.
+// (init()에서 resolveActiveDate()로 채워짐. 그 전까지는 null)
+let PLAN_DATE = null;
 
 let wake = '07:00';
 let bed = '23:00';
@@ -11,7 +13,8 @@ let tasks = [];
 function getWindow(){
   const wakeMin = timeToMin(wake);
   let bedMin = timeToMin(bed);
-  if(bedMin <= wakeMin) bedMin = wakeMin + 60;
+  // 취침 시각이 기상 시각보다 이르거나 같으면(예: 기상 07:00, 취침 03:00) 자정을 넘긴 다음날 새벽으로 본다.
+  if(bedMin <= wakeMin) bedMin += 1440;
   return { wakeMin, bedMin };
 }
 
@@ -64,7 +67,7 @@ function renderGridTimetable(){
 
     const hourCell = document.createElement('div');
     hourCell.className = 'grid-hour-cell' + (isFirstRow ? ' first-row' : '');
-    hourCell.textContent = String(h).padStart(2,'0');
+    hourCell.textContent = String(h % 24).padStart(2,'0');
     hourCell.style.gridRow = rowIndex;
     hourCell.style.gridColumn = 1;
     tableEl.appendChild(hourCell);
@@ -244,8 +247,9 @@ document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
     showEditWarn('이름을 입력하세요.');
     return;
   }
-  const newStart = timeToMin(editStart.value);
-  const newEnd = timeToMin(editEnd.value);
+  const { wakeMin } = getWindow();
+  const newStart = normalizeToWindow(timeToMin(editStart.value), wakeMin);
+  const newEnd = normalizeToWindow(timeToMin(editEnd.value), wakeMin);
   if(newEnd <= newStart){
     showEditWarn('종료 시각이 시작 시각보다 늦어야 해요.');
     return;
@@ -319,6 +323,12 @@ saveImageBtn.addEventListener('click', async ()=>{
 
 // ---- 초기 로딩: 서버에서 그 날짜 데이터를 불러옴 (없으면 편집 화면으로 돌려보냄) ----
 (async function init(){
+  try{
+    PLAN_DATE = await resolveActiveDate();
+  } catch(e){
+    PLAN_DATE = getTodayDate(); // 실패 시 그냥 달력 기준 오늘로 대체
+  }
+
   let saved = null;
   try{
     saved = await loadPlannerState(PLAN_DATE);

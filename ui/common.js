@@ -41,6 +41,14 @@ function minToHM(m){
   return mm>0 ? `${h}시간 ${mm}분` : `${h}시간`;
 }
 
+// timeToMin()은 "HH:MM"을 항상 0~1439 사이의 값으로만 돌려준다.
+// 근데 기상 07:00 / 취침 03:00(다음날 새벽)처럼 자정을 넘기는 하루도 있기 때문에,
+// "기상 시각보다 이른 시각"은 자정을 넘긴 다음날 새벽으로 보고 1440을 더해 하루를 그대로 연장한다.
+// (예: 기상 07:00=420, 취침 03:00=180 → 03:00은 420보다 이르므로 180+1440=1620으로 취급)
+function normalizeToWindow(rawMin, wakeMin){
+  return rawMin < wakeMin ? rawMin + 1440 : rawMin;
+}
+
 function mergeIntervals(intervals){
   if(intervals.length===0) return [];
   const sorted = intervals.slice().sort((a,b)=>a[0]-b[0]);
@@ -65,24 +73,52 @@ function normalizeClockInput(input){
 // ---- planning.html ↔ schedule.html ↔ 백엔드 API ----
 const API_BASE = 'http://localhost:3000/api';
 
-// 이 플래너는 "전날 밤에 다음날을 계획"하는 게 컨셉이라, planning.html은 항상 내일 날짜를 기준으로 저장/조회합니다.
-function getPlanDate(){
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
+function formatDateObj(d){
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
-// schedule.html은 "오늘 실제로 실행할" 시간표를 보여주는 화면이라, 오늘 날짜를 기준으로 조회합니다.
-// (어제 밤에 planning.html에서 저장한 데이터가 오늘 날짜로 들어있기 때문에 여기서 맞춰줘야 해요.)
+// 'YYYY-MM-DD' 문자열에 날짜를 더하거나(delta>0) 빼는(delta<0) 헬퍼
+function addDaysToDateStr(dateStr, delta){
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  return formatDateObj(d);
+}
+
+// (참고용으로 남겨둠 - 예전에는 이 두 함수로 날짜를 계산했음)
+function getPlanDate(){
+  return addDaysToDateStr(formatDateObj(new Date()), 1);
+}
 function getTodayDate(){
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return formatDateObj(new Date());
+}
+
+// 지금 이 순간이 속한 "활성 날짜"를 계산한다.
+// 자정이 아니라 그 날짜에 설정된 "기상 시각"을 하루의 경계로 본다:
+// - 오늘(달력 기준) 날짜에 저장된 기상 시각이 있고, 지금이 그 시각 이전이면
+//   → 아직 어제 하루(전날 밤에 세운 계획)가 안 끝난 것으로 보고 "어제" 날짜를 반환
+// - 그 외에는 오늘(달력 기준) 날짜를 그대로 반환
+// (기상 시각 정보를 아직 못 구했으면 그냥 달력 기준 오늘을 반환 — 새벽 2시에 자는 사람도,
+//  밤낮이 바뀐 사람도 각자 설정한 기상 시각을 기준으로 하루가 넘어가게 하기 위함)
+async function resolveActiveDate(){
+  const calToday = formatDateObj(new Date());
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+
+  let wakeMinToday = null;
+  try{
+    const ds = await apiGet(`/day-settings/${calToday}`);
+    if(ds && ds.wake_up_time != null) wakeMinToday = ds.wake_up_time;
+  } catch(e){
+    // 조회 실패하면 그냥 달력 기준 오늘로 취급
+  }
+
+  if(wakeMinToday != null && nowMin < wakeMinToday){
+    return addDaysToDateStr(calToday, -1);
+  }
+  return calToday;
 }
 
 async function apiGet(path){
