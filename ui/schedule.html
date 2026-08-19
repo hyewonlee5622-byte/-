@@ -17,7 +17,8 @@
       </div>
       <div class="result-head-actions">
         <button type="button" id="saveImageBtn" class="btn-ghost">📷 이미지로 저장</button>
-        <a href="planning.html" class="btn-ghost">일정 정하기</a>
+        <a href="settings.html" class="btn-ghost">⚙ 루틴 설정</a>
+        <a href="planning.html" class="btn-ghost">다음날 일정</a>
       </div>
     </div>
     <p class="hint" style="margin:0 0 14px;">일정을 클릭하면 수정할 수 있어요.</p>
@@ -54,6 +55,28 @@
       <span class="modal-field-label">표시</span>
       <div class="modal-chip-row">
         <button type="button" class="chip-toggle" id="editLockedChip">🔒 미루기 금지</button>
+      </div>
+    </div>
+
+    <div class="modal-field" id="pushField">
+      <button type="button" class="btn-ghost" id="pushToggleBtn" style="width:100%; text-align:center;">⏩ 이 일정부터 전체 밀기</button>
+      <p class="hint" id="pushLockedHint" style="display:none;">이 일정은 잠겨 있어서(미루기 금지) 밀 수 없어요.</p>
+
+      <div id="pushPanel" style="display:none; margin-top:10px; padding:12px; border:1px solid var(--line); border-radius:6px; background:#FAFBFC;">
+        <div class="modal-time-row">
+          <input type="number" id="pushMinutes" class="clock-input" min="1" step="5" value="15" style="text-align:center;">
+          <span class="modal-tilde">분 밀기</span>
+        </div>
+        <p class="modal-field-label" style="margin-top:12px;">미루기 금지 일정과 겹치면?</p>
+        <div class="modal-chip-row" id="pushStrategyRow" style="margin-top:6px; flex-wrap:wrap;">
+          <button type="button" class="chip-toggle" data-strategy="cap">밀 수 있는 만큼만</button>
+          <button type="button" class="chip-toggle" data-strategy="delete">겹치면 삭제</button>
+          <button type="button" class="chip-toggle" data-strategy="skip">건너뛰고 이어붙이기</button>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+          <button type="button" class="modal-btn modal-btn-secondary" id="pushCancelBtn">취소</button>
+          <button type="button" class="modal-btn modal-btn-primary" id="pushApplyBtn">밀기 적용</button>
+        </div>
       </div>
     </div>
 

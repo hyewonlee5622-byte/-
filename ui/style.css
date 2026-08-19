@@ -410,6 +410,9 @@
     transition:background .12s, border-color .12s, color .12s;
   }
   .chip-toggle:hover{border-color:var(--ink-soft);}
+  .chip-toggle.active{
+    background:var(--ink);border-color:var(--ink);color:#fff;
+  }
   .chip-toggle#editCriticalChip.active{
     background:var(--accent1);border-color:var(--accent1);color:#fff;
   }
