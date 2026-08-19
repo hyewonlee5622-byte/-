@@ -1,8 +1,8 @@
 const ACCENTS = ['#E8720C','#B8511F','#8A3A15'];
 const MUTED = ['#5B7A99','#7C8CA3','#4E6580','#8B98AC'];
 
-// planning.html과 동일한 기준으로 날짜를 계산 (항상 "다음날")
-const PLAN_DATE = getPlanDate();
+// schedule.html은 "오늘" 실행할 시간표를 보여주는 화면 (planning.html은 "내일"을 계획하는 화면)
+const PLAN_DATE = getTodayDate();
 
 let wake = '07:00';
 let bed = '23:00';
@@ -280,19 +280,35 @@ saveImageBtn.addEventListener('click', async ()=>{
   try{
     saved = await loadPlannerState(PLAN_DATE);
   } catch(e){
+    // 서버 조회에 실패해도 화면 자체는 그대로 보여주고, 빈 시간표로 대체합니다.
     alert('서버에서 데이터를 불러오지 못했어요: ' + e.message + '\n서버(npm start)가 켜져 있는지 확인해주세요.');
-    window.location.href = 'planning.html';
-    return;
   }
 
-  if(!saved){
-    window.location.href = 'planning.html';
-    return;
-  }
-
-  wake = saved.wake || '07:00';
-  bed = saved.bed || '23:00';
-  tasks = saved.tasks;
+  // 오늘 저장된 일정이 없어도(= saved가 null) planning.html로 보내지 않고,
+  // 기본 기상/취침 시각 기준의 빈 시간표를 그대로 보여줍니다.
+  wake = (saved && saved.wake) || '07:00';
+  bed = (saved && saved.bed) || '23:00';
+  tasks = (saved && saved.tasks) || [];
 
   renderGridTimetable();
+  updateEmptyState();
 })();
+
+// 오늘 계획된 일정이 하나도 없을 때, 빈 화면만 덩그러니 있지 않도록 안내 문구를 보여줍니다.
+function updateEmptyState(){
+  const gridWrap = document.querySelector('.grid-wrap');
+  let emptyHint = document.getElementById('emptyHint');
+
+  if(tasks.length === 0){
+    if(!emptyHint){
+      emptyHint = document.createElement('p');
+      emptyHint.id = 'emptyHint';
+      emptyHint.className = 'hint';
+      emptyHint.style.margin = '0 0 14px';
+      emptyHint.textContent = '오늘 계획된 일정이 없어요. planning.html에서 전날 밤에 다음날 일정을 먼저 계획해보세요.';
+      gridWrap.parentNode.insertBefore(emptyHint, gridWrap);
+    }
+  } else if(emptyHint){
+    emptyHint.remove();
+  }
+}

@@ -65,10 +65,20 @@ function normalizeClockInput(input){
 // ---- planning.html ↔ schedule.html ↔ 백엔드 API ----
 const API_BASE = 'http://localhost:3000/api';
 
-// 이 플래너는 "전날 밤에 다음날을 계획"하는 게 컨셉이라, 항상 내일 날짜를 기준으로 저장/조회합니다.
+// 이 플래너는 "전날 밤에 다음날을 계획"하는 게 컨셉이라, planning.html은 항상 내일 날짜를 기준으로 저장/조회합니다.
 function getPlanDate(){
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// schedule.html은 "오늘 실제로 실행할" 시간표를 보여주는 화면이라, 오늘 날짜를 기준으로 조회합니다.
+// (어제 밤에 planning.html에서 저장한 데이터가 오늘 날짜로 들어있기 때문에 여기서 맞춰줘야 해요.)
+function getTodayDate(){
+  const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');

@@ -144,11 +144,17 @@ function renderAllocation(){
     const lockBtn = document.createElement('button');
     lockBtn.type = 'button';
     lockBtn.className = 'lock-btn' + (t.locked ? ' locked' : '');
-    lockBtn.title = t.locked
-      ? '고정 해제하기'
-      : '이 시간 고정하기 (나중에 "미루기" 기능에도 영향받지 않아요)';
+    if(t.routineLocked){
+      lockBtn.disabled = true;
+      lockBtn.title = '루틴에서 "미루기 금지"로 설정된 일정이라 여기서는 바꿀 수 없어요. (루틴 설정 페이지에서 변경하세요)';
+    } else {
+      lockBtn.title = t.locked
+        ? '고정 해제하기'
+        : '이 시간 고정하기 (나중에 "미루기" 기능에도 영향받지 않아요)';
+    }
     lockBtn.textContent = t.locked ? '🔒' : '🔓';
     lockBtn.addEventListener('click', ()=>{
+      if(t.routineLocked) return; // 루틴에서 정해진 잠금은 여기서 못 바꿈
       t.locked = !t.locked;
       render();
     });
@@ -372,6 +378,10 @@ completeBtn.addEventListener('click', async ()=>{
 });
 
 // ---- 초기 로딩: 저장된 데이터가 있으면 복원, 없으면 기본값으로 시작 ----
+// + 저장 여부와 상관없이 매번 "현재 루틴 상태"와 동기화한다:
+//   - 꺼진 루틴(또는 비활성화된 항목)에서 온 일정은 자동으로 제거
+//   - 켜져 있는데 아직 반영 안 된 루틴 항목은 새로 추가
+//   - "다음날 일정 정리" 기본 시드는 위 두 가지와 무관하게 항상 존재
 (async function init(){
   let saved = null;
   try{
@@ -385,38 +395,65 @@ completeBtn.addEventListener('click', async ()=>{
     nextId = Math.max(0, ...tasks.map(t=>t.id)) + 1;
     wakeInput.value = saved.wake || '07:00';
     bedInput.value = saved.bed || '23:00';
-    } else {
-    let routines = [];
-    try{
-      routines = await apiGet('/routines');
-    } catch(e){
-      // 루틴을 못 불러와도 플래너 자체는 계속 쓸 수 있어야 하니 조용히 넘어감
-    }
-
-    const activeItems = routines
-      .filter(r => r.is_active)
-      .flatMap(r => r.items.filter(it => it.is_active));
-
-    if(activeItems.length > 0){
-      activeItems.forEach(it => {
-        tasks.push({
-          id: nextId++,
-          text: it.name,
-          critical: false,
-          locked: false,
-          startMin: it.preferred_time,
-          endMin: it.preferred_time + it.duration,
-          routineItemId: it.routine_item_id
-        });
-      });
-    } else {
-      addTask('다음날 일정 정리');
-      const seed = tasks[tasks.length - 1];
-      const { bedMin } = getWindow();
-      seed.startMin = bedMin - 30;
-      seed.endMin = bedMin;
-      seed.anchorToBedtime = true;
-    }
   }
+
+  let routines = [];
+  try{
+    routines = await apiGet('/routines');
+  } catch(e){
+    // 루틴을 못 불러와도 플래너 자체는 계속 쓸 수 있어야 하니 조용히 넘어감
+  }
+
+  const activeItems = routines
+    .filter(r => r.is_active)
+    .flatMap(r => r.items.filter(it => it.is_active));
+  const activeItemMap = new Map(activeItems.map(it => [it.routine_item_id, it]));
+
+  // 루틴(또는 그 안의 항목)이 꺼져있으면, 거기서 온 일정은 자동으로 제거
+  tasks = tasks.filter(t => !t.routineItemId || activeItemMap.has(t.routineItemId));
+
+  // 루틴에서 온 일정은 매번 루틴의 현재 설정 기준으로 다시 맞춘다:
+  // - top3(critical) 여부는 루틴 on/off와 무관하게 절대 기억하지 않고 항상 false로 리셋
+  // - 잠금(locked)은 루틴에 설정된 "미루기 금지" 값을 그대로 강제 적용
+  // - routineLocked 플래그로 표시해서, 시간 배분 화면에서 사용자가 직접 못 바꾸게 함
+  tasks.forEach(t => {
+    if(!t.routineItemId) return;
+    const it = activeItemMap.get(t.routineItemId);
+    if(!it) return;
+    t.critical = false;
+    t.locked = !!it.is_locked;
+    t.routineLocked = !!it.is_locked;
+  });
+
+  // 켜져 있는 루틴 항목 중, 아직 목록에 없는 것만 새로 추가
+  const existingRoutineItemIds = new Set(
+    tasks.filter(t => t.routineItemId).map(t => t.routineItemId)
+  );
+  activeItems.forEach(it => {
+    if(existingRoutineItemIds.has(it.routine_item_id)) return;
+    tasks.push({
+      id: nextId++,
+      text: it.name,
+      critical: false,
+      locked: !!it.is_locked,
+      routineLocked: !!it.is_locked,
+      startMin: it.preferred_time,
+      endMin: it.preferred_time + it.duration,
+      routineItemId: it.routine_item_id
+    });
+  });
+
+  // 루틴 유무·저장 여부와 상관없이 기본 시드 "다음날 일정 정리"는 항상 유지하되,
+  // 이름이 같은 일정이 이미 있으면(저장 후 다시 불러온 경우 포함) 중복 추가하지 않음
+  const SEED_TASK_NAME = '다음날 일정 정리';
+  if(!tasks.some(t => t.text === SEED_TASK_NAME)){
+    addTask(SEED_TASK_NAME);
+    const seed = tasks[tasks.length - 1];
+    const { bedMin } = getWindow();
+    seed.startMin = bedMin - 30;
+    seed.endMin = bedMin;
+    seed.anchorToBedtime = true;
+  }
+
   render();
 })();
