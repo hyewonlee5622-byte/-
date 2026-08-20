@@ -3,6 +3,7 @@ const MUTED = ['#5B7A99','#7C8CA3','#4E6580','#8B98AC'];
 
 let tasks = [];
 let nextId = 1;
+let categories = []; // 서버에서 불러온 카테고리 목록 (init에서 한 번 채움)
 
 // consistent color per task: top3(critical)는 강조색, 나머지는 muted색을 순서대로 배정
 function colorForTask(t){
@@ -39,6 +40,70 @@ function criticalCount(){
   return tasks.filter(t=>t.critical).length;
 }
 
+// ---- 화면 상태 그대로(시간 없는 일정 포함) 브라우저에 즉시 임시 저장 ----
+// 서버는 일정마다 시작/종료 시각이 필수라 시간 없는 일정은 저장을 못 하지만,
+// 이건 로컬 저장이라 그런 제약이 없어서 지금 화면에 있는 걸 통째로 그대로 담을 수 있다.
+function draftKey(date){
+  return `planner_draft_${date}`;
+}
+function saveDraftToLocalStorage(){
+  if(!planTargetDate) return;
+  try{
+    localStorage.setItem(draftKey(planTargetDate), JSON.stringify({
+      wake: wakeInput.value,
+      bed: bedInput.value,
+      tasks,
+      nextId
+    }));
+  } catch(e){
+    console.warn('임시 저장 실패:', e.message);
+  }
+}
+function loadDraftFromLocalStorage(date){
+  try{
+    const raw = localStorage.getItem(draftKey(date));
+    return raw ? JSON.parse(raw) : null;
+  } catch(e){
+    return null;
+  }
+}
+function clearDraftFromLocalStorage(date){
+  try{ localStorage.removeItem(draftKey(date)); } catch(e){}
+}
+
+// ---- 특정 날짜에서만 루틴 항목을 제외하기 ----
+// "할 일 기록"에서 루틴으로 온 일정을 지우면, 루틴 자체나 다른 날짜는 그대로 두고
+// 이 날짜에서만 다시 자동으로 채워지지 않도록 기록해둔다.
+function excludedKey(date){
+  return `planner_excluded_routines_${date}`;
+}
+function loadExcludedRoutineIds(date){
+  try{
+    const raw = localStorage.getItem(excludedKey(date));
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch(e){
+    return new Set();
+  }
+}
+function excludeRoutineItemForThisDate(routineItemId){
+  if(!planTargetDate) return;
+  const ids = loadExcludedRoutineIds(planTargetDate);
+  ids.add(routineItemId);
+  try{
+    localStorage.setItem(excludedKey(planTargetDate), JSON.stringify([...ids]));
+  } catch(e){
+    console.warn('제외 목록 저장 실패:', e.message);
+  }
+}
+
+// 추가/삭제/체크/잠금/카테고리/시간 변경 등 동작이 있을 때마다 조용히 백그라운드로 저장한다.
+// (시간이 아직 없는 일정은 autoSavePlannerState 안에서 알아서 걸러짐. 화면은 전혀 안 건드림)
+function saveInBackground(){
+  if(!planTargetDate) return; // 아직 로딩 전이면 건너뜀
+  autoSavePlannerState(planTargetDate, wakeInput.value, bedInput.value, tasks)
+    .catch(e => console.warn('백그라운드 저장 실패:', e.message));
+}
+
 taskForm.addEventListener('submit', (e)=>{
   e.preventDefault();
   const v = taskInput.value.trim();
@@ -46,6 +111,7 @@ taskForm.addEventListener('submit', (e)=>{
   addTask(v);
   taskInput.value = '';
   render();
+  saveInBackground();
 });
 
 function renderTaskList(){
@@ -71,19 +137,25 @@ function renderTaskList(){
       }
       t.critical = cb.checked;
       render();
+      saveInBackground();
     });
 
     const span = document.createElement('span');
     span.className = 'txt';
-    span.textContent = (t.critical ? '★ ' : '') + t.text;
+    span.textContent = (t.critical ? '★ ' : '') + t.text + (t.routineItemId ? ' (루틴)' : '');
 
     const del = document.createElement('button');
     del.className = 'del';
     del.type = 'button';
     del.textContent = '✕';
+    if(t.routineItemId){
+      del.title = '루틴에서 온 일정이에요. 지우면 오늘/이 날짜에서만 빠지고, 루틴 자체나 다른 날에는 영향 없어요.';
+    }
     del.addEventListener('click', ()=>{
+      if(t.routineItemId) excludeRoutineItemForThisDate(t.routineItemId);
       tasks = tasks.filter(x=>x.id!==t.id);
       render();
+      saveInBackground();
     });
 
     li.append(cb, span, del);
@@ -140,11 +212,40 @@ function renderAllocation(){
       if(t.routineLocked) return; // 루틴에서 정해진 잠금은 여기서 못 바꿈
       t.locked = !t.locked;
       render();
+      saveInBackground();
     });
 
     const name = document.createElement('span');
     name.className = 'alloc-name';
     name.textContent = (t.critical ? '★ ' : '') + t.text;
+
+    const catSelect = document.createElement('select');
+    catSelect.className = 'clock-input';
+    catSelect.style.width = 'auto';
+    catSelect.style.maxWidth = '120px';
+    if(t.routineItemId){
+      catSelect.disabled = true;
+      catSelect.title = '루틴에서 설정된 카테고리라 여기서는 바꿀 수 없어요. (루틴 설정 페이지에서 변경하세요)';
+    } else {
+      catSelect.title = '카테고리';
+    }
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '카테고리 없음';
+    catSelect.appendChild(noneOpt);
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.category_id;
+      opt.textContent = `${c.icon ? c.icon + ' ' : ''}${c.name}`;
+      if(t.categoryId === c.category_id) opt.selected = true;
+      catSelect.appendChild(opt);
+    });
+    catSelect.addEventListener('change', ()=>{
+      if(t.routineItemId) return; // 루틴에서 정해진 카테고리는 여기서 못 바꿈
+      t.categoryId = catSelect.value ? parseInt(catSelect.value, 10) : null;
+      render();
+      saveInBackground();
+    });
 
     const wrap = document.createElement('div');
     wrap.className = 'alloc-time-wrap';
@@ -163,6 +264,7 @@ function renderAllocation(){
     startInput.addEventListener('change', ()=>{
       t.startMin = normalizeToWindow(timeToMin(startInput.value), wakeMin);
       render();
+      saveInBackground();
     });
     normalizeClockInput(startInput);
 
@@ -181,6 +283,7 @@ function renderAllocation(){
     endInput.addEventListener('change', ()=>{
       t.endMin = normalizeToWindow(timeToMin(endInput.value), wakeMin);
       render();
+      saveInBackground();
     });
     normalizeClockInput(endInput);
 
@@ -196,7 +299,7 @@ function renderAllocation(){
     }
 
     wrap.append(startInput, dash, endInput, dur);
-    row.append(dot, lockBtn, name, wrap);
+    row.append(dot, lockBtn, name, catSelect, wrap);
     allocationListEl.appendChild(row);
   });
 
@@ -360,8 +463,8 @@ function render(){
   renderTimeline();
 }
 
-wakeInput.addEventListener('input', render);
-bedInput.addEventListener('input', render);
+wakeInput.addEventListener('change', ()=>{ render(); saveInBackground(); });
+bedInput.addEventListener('change', ()=>{ render(); saveInBackground(); });
 normalizeClockInput(wakeInput);
 normalizeClockInput(bedInput);
 
@@ -400,24 +503,41 @@ function updateTargetButtonsUI(){
   planTargetHint.textContent = isToday
     ? `지금 "오늘(${planTargetDate})" 일정을 편집 중이에요.`
     : `지금 "다음날(${planTargetDate})" 일정을 편집 중이에요.`;
+
+  // Phase 01의 제목/안내/라벨도 지금 오늘을 편집 중인지 다음날을 편집 중인지에 맞게 갱신
+  const dayWord = isToday ? '오늘' : '다음날';
+  const phase01Title = document.getElementById('phase01Title');
+  const phase01Hint = document.getElementById('phase01Hint');
+  const wakeLabelText = document.getElementById('wakeLabelText');
+  const bedLabelText = document.getElementById('bedLabelText');
+  if(phase01Title) phase01Title.textContent = `${dayWord} 수면 · 기상`;
+  if(phase01Hint){
+    phase01Hint.innerHTML = isToday
+      ? `아침에 일어나서 작성하는 경우라면, 아래 두 시각은 <strong>오늘(지금 계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`
+      : `전날 밤에 작성하는 걸 기준으로, 아래 두 시각은 모두 <strong>다음날(계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`;
+  }
+  if(wakeLabelText) wakeLabelText.textContent = `${dayWord} 기상 시각`;
+  if(bedLabelText) bedLabelText.textContent = `${dayWord} 취침 시각`;
+
+  // 루틴은 "다음날" 계획에만 반영되니, "오늘" 탭에서는 루틴 설정 버튼을 숨긴다.
+  if(settingsLink) settingsLink.style.display = isToday ? 'none' : '';
 }
 
 // 루틴 상태와 동기화 (꺼진 루틴 일정 제거, 켜진 루틴 새 항목 추가, top3/잠금 규칙 적용)
-// 시드 일정("오늘 일정 정리"/"다음날 일정 정리")이 있는지 확인하고, 이름을 지금 상황에 맞게 맞춘다.
-// 삭제 후 재생성하지 않고 이름만 바꾸므로 top3/잠금/시간 등은 그대로 보존된다.
+// 시드 일정 이름은 "오늘"/"다음날" 탭 구분 없이 항상 "다음날 일정 정리"로 고정한다.
+// (탭에 따라 이름이 갈리게 했더니 계속 헷갈렸어서, 아예 하나로 통일함)
+const SEED_TASK_NAME = '다음날 일정 정리';
 function ensureSeedTask(){
-  const seedName = (planTargetDate === activeDate) ? '오늘 일정 정리' : '다음날 일정 정리';
-  const otherSeedName = (planTargetDate === activeDate) ? '다음날 일정 정리' : '오늘 일정 정리';
-  const seedCandidates = tasks.filter(t => t.text === seedName || t.text === otherSeedName);
+  const seedCandidates = tasks.filter(t => t.text === SEED_TASK_NAME);
 
   if(seedCandidates.length > 0){
-    seedCandidates[0].text = seedName;
+    // 혹시 과거 버그로 중복 생성됐던 게 남아있으면 그것만 정리
     if(seedCandidates.length > 1){
       const extraIds = new Set(seedCandidates.slice(1).map(t=>t.id));
       tasks = tasks.filter(t => !extraIds.has(t.id));
     }
   } else {
-    addTask(seedName);
+    addTask(SEED_TASK_NAME);
     const seed = tasks[tasks.length - 1];
     const { bedMin } = getWindow();
     seed.startMin = bedMin - 30;
@@ -452,13 +572,16 @@ async function syncWithRoutines(){
   });
 
   // 켜져 있는 루틴 항목 중, 아직 목록에 없는 것만 새로 추가 (여기서만 top3 false로 시작)
+  // 단, 이 날짜에서 사용자가 직접 지워서 "제외"로 기록해둔 항목은 다시 채우지 않는다.
   const existingRoutineItemIds = new Set(
     tasks.filter(t => t.routineItemId).map(t => t.routineItemId)
   );
+  const excludedIds = loadExcludedRoutineIds(planTargetDate);
   const { wakeMin } = getWindow();
 
   activeItems.forEach(it => {
     if(existingRoutineItemIds.has(it.routine_item_id)) return;
+    if(excludedIds.has(it.routine_item_id)) return;
     const startMin = normalizeToWindow(it.preferred_time, wakeMin);
     tasks.push({
       id: nextId++,
@@ -468,7 +591,8 @@ async function syncWithRoutines(){
       routineLocked: !!it.is_locked,
       startMin: startMin,
       endMin: startMin + it.duration,
-      routineItemId: it.routine_item_id
+      routineItemId: it.routine_item_id,
+      categoryId: it.category_id || null
     });
   });
 
@@ -501,6 +625,16 @@ async function loadForDate(date){
     bedInput.value = saved.bed || '23:00';
   }
 
+  // 서버 데이터를 채운 뒤, 로컬에 임시 저장된(완료 안 하고 나갔던) 화면 상태가 있으면
+  // 그걸로 덮어써서 시간 없는 일정까지 포함해 그대로 복원한다.
+  const draft = loadDraftFromLocalStorage(date);
+  if(draft){
+    tasks = draft.tasks || [];
+    nextId = draft.nextId || (Math.max(0, ...tasks.map(t=>t.id)) + 1);
+    wakeInput.value = draft.wake || wakeInput.value;
+    bedInput.value = draft.bed || bedInput.value;
+  }
+
   // 루틴 동기화는 "다음날"을 계획할 때, 또는 "오늘"인데 아직 계획이 하나도 없어서
   // 처음 짜는 경우에만 적용한다. 이미 확정된 "오늘" 계획은 이후 루틴을 켜고 끄더라도
   // 그 영향을 받지 않아야 하므로(이미 실행 중인 하루니까) 건드리지 않는다.
@@ -530,6 +664,7 @@ completeBtn.addEventListener('click', async ()=>{
   completeBtn.textContent = '저장 중...';
   try{
     await savePlannerState(planTargetDate, wakeInput.value, bedInput.value, tasks);
+    clearDraftFromLocalStorage(planTargetDate); // 정식으로 저장됐으니 임시본은 더 이상 필요 없음
     window.location.href = 'schedule.html';
   } catch(e){
     alert('저장에 실패했어요: ' + e.message + '\n서버(npm start)가 켜져 있는지 확인해주세요.');
@@ -538,10 +673,45 @@ completeBtn.addEventListener('click', async ()=>{
   }
 });
 
+// ---- "⚙ 루틴 설정" 클릭 시 먼저 저장하고 이동 ----
+// 그냥 <a href="settings.html">로 바로 이동하면 지금까지 편집 중이던 내용이 날아가므로,
+// 클릭을 가로채서 화면 상태 그대로(시간 없는 일정 포함) 로컬에 즉시 저장하고,
+// 서버에도 가능한 만큼(시간이 있는 일정) 저장을 시도한 뒤 이동한다.
+const settingsLink = document.getElementById('settingsLink');
+if(settingsLink){
+  settingsLink.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    const targetHref = settingsLink.getAttribute('href');
+
+    saveDraftToLocalStorage(); // 시간 없는 일정까지 포함해 화면 그대로 즉시 보존
+
+    try{
+      await autoSavePlannerState(planTargetDate, wakeInput.value, bedInput.value, tasks);
+    } catch(err){
+      // 서버 저장이 안 되더라도 로컬엔 이미 담겼고, 설정 페이지 자체는 갈 수 있어야 하니 조용히 넘어감
+      console.warn('루틴 설정으로 이동 전 서버 저장 실패:', err.message);
+    }
+    window.location.href = targetHref;
+  });
+}
+
+// ---- 어떤 방식으로 페이지를 떠나든(뒤로가기, 다른 링크, 탭 닫기 등) 무조건 임시 저장 ----
+// 버튼 클릭 하나에만 의존하면 다른 경로로 나갈 때 저장이 안 될 수 있어서,
+// "페이지를 떠나기 직전" 이벤트에 걸어 항상 화면 상태 그대로(시간 없는 일정 포함) 로컬에 남긴다.
+window.addEventListener('beforeunload', ()=>{
+  saveDraftToLocalStorage();
+});
+
 // ---- 초기 로딩 ----
 // 기상 시각 기준으로 "활성 날짜(오늘)"를 계산하고, 그 다음날 날짜도 구한다.
 // 오늘 계획이 아직 비어있으면 "오늘"부터 편집하게 하고, 이미 있으면 평소처럼 "다음날"부터 보여준다.
 (async function init(){
+  try{
+    categories = await apiGet('/categories');
+  } catch(e){
+    // 카테고리를 못 불러와도 플래너 자체는 계속 쓸 수 있어야 하니 조용히 넘어감
+  }
+
   try{
     activeDate = await resolveActiveDate();
   } catch(e){

@@ -11,6 +11,30 @@ db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
 // 이미 만들어진 DB에 새 컬럼을 추가하는 간단한 마이그레이션 (이미 있으면 조용히 무시)
 try{ db.exec('ALTER TABLE routine_item ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0'); } catch(e){}
+try{ db.exec('ALTER TABLE routine_item ADD COLUMN category_id INTEGER'); } catch(e){}
+
+// 카테고리 기본 시드 데이터 (테이블이 비어있을 때만 한 번 채워넣음)
+try{
+  const existingCount = db.prepare('SELECT COUNT(*) AS c FROM category').get();
+  if(existingCount.c === 0){
+    const insertCategory = db.prepare(
+      'INSERT INTO category (name, color, icon, sort_order) VALUES (?, ?, ?, ?)'
+    );
+    const defaultCategories = [
+      ['업무/학업', '#3A6EA5', '💼', 1],
+      ['건강/운동', '#4C9A6B', '💪', 2],
+      ['식사',     '#D98A3D', '🍚', 3],
+      ['집안일',   '#8A7A66', '🧹', 4],
+      ['자기관리', '#B06AA2', '🧴', 5],
+      ['관계/사교', '#D9556B', '👥', 6],
+      ['여가/취미', '#4FA3A8', '🎮', 7],
+      ['자기계발', '#6A6ADB', '📚', 8],
+    ];
+    defaultCategories.forEach(c => insertCategory.run(...c));
+  }
+} catch(e){
+  // 시드 실패해도 서버는 계속 떠야 하니 조용히 넘어감
+}
 
 const app = express();
 app.use(express.json());
@@ -209,15 +233,15 @@ app.post('/api/routines/:id/items', (req, res) => {
   const routineExists = row(db.prepare('SELECT routine_id FROM routine WHERE routine_id = ?'), routineId);
   if (!routineExists) return res.status(404).json({ error: '해당 루틴을 찾을 수 없어요.' });
 
-  const { name, preferred_time, duration, is_locked = 0 } = req.body;
+  const { name, preferred_time, duration, is_locked = 0, category_id = null } = req.body;
   if (!name || preferred_time == null || duration == null) {
     return res.status(400).json({ error: 'name, preferred_time, duration은 필수예요.' });
   }
 
   const result = db.prepare(`
-    INSERT INTO routine_item (routine_id, name, preferred_time, duration, is_locked)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(routineId, name, preferred_time, duration, is_locked ? 1 : 0);
+    INSERT INTO routine_item (routine_id, name, preferred_time, duration, is_locked, category_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(routineId, name, preferred_time, duration, is_locked ? 1 : 0, category_id);
 
   res.status(201).json(row(db.prepare('SELECT * FROM routine_item WHERE routine_item_id = ?'), result.lastInsertRowid));
 });
@@ -231,9 +255,9 @@ app.put('/api/routine-items/:id', (req, res) => {
   const merged = { ...existing, ...req.body };
   db.prepare(`
     UPDATE routine_item
-    SET name = ?, preferred_time = ?, duration = ?, is_active = ?
+    SET name = ?, preferred_time = ?, duration = ?, is_active = ?, is_locked = ?, category_id = ?
     WHERE routine_item_id = ?
-  `).run(merged.name, merged.preferred_time, merged.duration, merged.is_active ? 1 : 0, id);
+  `).run(merged.name, merged.preferred_time, merged.duration, merged.is_active ? 1 : 0, merged.is_locked ? 1 : 0, merged.category_id ?? null, id);
 
   res.json(row(db.prepare('SELECT * FROM routine_item WHERE routine_item_id = ?'), id));
 });

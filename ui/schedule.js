@@ -394,7 +394,8 @@ pushApplyBtn.addEventListener('click', async ()=>{
           endMin: t.endMin,
           critical: t.critical,
           locked: t.locked,
-          routineItemId: t.routineItemId
+          routineItemId: t.routineItemId,
+          categoryId: t.categoryId
         }, PLAN_DATE);
         const savedRow = await apiSend('PUT', `/events/${t.id}`, payload);
         Object.assign(t, eventRowToTask(savedRow));
@@ -496,7 +497,8 @@ document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
     endMin: newEnd,
     critical: t.critical,
     locked: editLockedChip.classList.contains('active'),
-    routineItemId: t.routineItemId
+    routineItemId: t.routineItemId,
+    categoryId: t.categoryId
   }, PLAN_DATE);
 
   try{

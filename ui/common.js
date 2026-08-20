@@ -184,7 +184,8 @@ function eventRowToTask(row){
     locked: !!row.is_locked,
     startMin: row.start_time,
     endMin: row.end_time,
-    routineItemId: row.routine_item_id || null
+    routineItemId: row.routine_item_id || null,
+    categoryId: row.category_id || null
   };
 }
 function taskToEventPayload(task, date){
@@ -196,6 +197,7 @@ function taskToEventPayload(task, date){
     is_top3: task.critical ? 1 : 0,
     is_locked: task.locked ? 1 : 0,
     event_type: task.routineItemId ? 'routine' : 'manual',
-    routine_item_id: task.routineItemId || null
+    routine_item_id: task.routineItemId || null,
+    category_id: task.categoryId || null
   };
 }

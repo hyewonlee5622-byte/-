@@ -15,9 +15,9 @@
         <p class="eyebrow">MISSION TIMEPLANNER</p>
         <h1>오늘의 비행 계획</h1>
       </div>
-      <a href="settings.html" class="btn-ghost">⚙ 루틴 설정</a>
+      <a href="settings.html" class="btn-ghost" id="settingsLink">⚙ 루틴 설정</a>
     </div>
-    <p class="sub">전날 밤에 작성 · 다음날 기상 → 할 일 기록 → Top 3 선정 → 시간 배분</p>
+    <p class="sub">할 일 기록 → Top 3 선정 → 시간 배분</p>
     <div class="result-head-actions" id="planTargetRow" style="margin-top:14px;">
       <button type="button" class="btn-ghost" id="planTodayBtn">오늘 일정 정하기</button>
       <button type="button" class="btn-ghost" id="planTomorrowBtn">다음날 일정 정하기</button>
@@ -37,13 +37,13 @@
     <main class="phases">
 
       <section class="phase">
-        <div class="phase-head"><span class="phase-num">PHASE 01</span><h2>다음날 수면 · 기상</h2></div>
-        <p class="hint" style="margin:0 0 14px;">전날 밤에 작성하는 걸 기준으로, 아래 두 시각은 모두 <strong>다음날(계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).</p>
+        <div class="phase-head"><span class="phase-num">PHASE 01</span><h2 id="phase01Title">다음날 수면 · 기상</h2></div>
+        <p class="hint" style="margin:0 0 14px;" id="phase01Hint">전날 밤에 작성하는 걸 기준으로, 아래 두 시각은 모두 <strong>다음날(계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).</p>
         <div class="field-row">
-          <label>다음날 기상 시각
+          <label><span id="wakeLabelText">다음날 기상 시각</span>
             <input type="text" class="clock-input" id="wakeTime" value="07:00" placeholder="HH:MM" inputmode="numeric" maxlength="5">
           </label>
-          <label>다음날 취침 시각
+          <label><span id="bedLabelText">다음날 취침 시각</span>
             <input type="text" class="clock-input" id="bedTime" value="23:00" placeholder="HH:MM" inputmode="numeric" maxlength="5">
           </label>
         </div>
@@ -54,17 +54,17 @@
       <section class="phase">
         <div class="phase-head"><span class="phase-num">PHASE 02</span><h2>할 일 기록</h2></div>
         <form class="task-form" id="taskForm">
-          <input type="text" id="taskInput" placeholder="오늘 해야 할 일을 입력">
+          <input type="text" id="taskInput" placeholder="해야 할 일을 입력">
           <button type="submit">추가</button>
         </form>
         <ul class="task-list" id="taskList"></ul>
-        <p class="hint">체크박스는 <strong>오늘 가장 중요한 Top 3</strong> 표시용이에요 (별표 ★). 시간 배분은 아래에서 모든 항목에 대해 합니다.</p>
+        <p class="hint">체크박스는 <strong>오늘 가장 중요한 Top 3</strong> 표시용이에요.</p>
         <p class="msg" id="limitMsg">이미 3개를 선택했어요. 다른 항목을 먼저 해제하세요.</p>
       </section>
 
       <section class="phase">
         <div class="phase-head"><span class="phase-num">PHASE 03</span><h2>시간 배분</h2></div>
-        <p class="hint" style="margin:0 0 14px;">기록한 모든 일에 시작~종료 시각을 정하세요. ★ 표시는 오늘의 Top 3입니다.</p>
+        <p class="hint" style="margin:0 0 14px;">기록한 모든 일에 시작~종료 시각을 정하세요.</p>
         <div id="allocationList"></div>
         <p class="readout" id="allocationReadout"></p>
         <button type="button" id="completeBtn" class="btn-complete">완료 · 시간표로 이동</button>

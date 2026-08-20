@@ -3,8 +3,41 @@ const routineNameInput = document.getElementById('routineNameInput');
 const routineListEl = document.getElementById('routineList');
 
 let routines = [];
+let categories = [];
+
+// planning.js가 "할 일 기록"에서 루틴 일정을 지울 때 localStorage에
+// `planner_excluded_routines_YYYY-MM-DD` 키로 "이 날짜에서는 이 항목 빼기"를 기록해둔다.
+// 루틴을 껐다가 다시 켜면, 그 루틴 항목들에 대한 이 기록을 전부 지워서 다시 나타나게 한다.
+function clearExclusionForRoutineItems(routineItemIds){
+  if(!routineItemIds || routineItemIds.length === 0) return;
+  const idSet = new Set(routineItemIds);
+  try{
+    const keysToCheck = [];
+    for(let i=0; i<localStorage.length; i++){
+      const key = localStorage.key(i);
+      if(key && key.startsWith('planner_excluded_routines_')) keysToCheck.push(key);
+    }
+    keysToCheck.forEach(key => {
+      try{
+        const ids = new Set(JSON.parse(localStorage.getItem(key) || '[]'));
+        let changed = false;
+        idSet.forEach(id => {
+          if(ids.has(id)){ ids.delete(id); changed = true; }
+        });
+        if(changed) localStorage.setItem(key, JSON.stringify([...ids]));
+      } catch(e){}
+    });
+  } catch(e){
+    // localStorage를 못 쓰는 환경이어도 루틴 켜고 끄는 기능 자체는 계속 동작해야 하니 조용히 넘어감
+  }
+}
 
 async function loadRoutines(){
+  try{
+    categories = await apiGet('/categories');
+  } catch(e){
+    // 카테고리를 못 불러와도 루틴 설정 자체는 계속 쓸 수 있어야 하니 조용히 넘어감
+  }
   try{
     routines = await apiGet('/routines');
   } catch(e){
@@ -61,6 +94,10 @@ function renderRoutines(){
               // 정리에 실패해도 루틴 켜고 끄는 기능 자체는 계속 동작해야 하니 조용히 넘어감
             }
           }
+        } else {
+          // 루틴을 다시 켤 때는, "이 날짜에서는 뺐다"고 기록해둔 게 있으면 전부 지워서
+          // 다음에 그 날짜를 열었을 때 다시 나타나게 한다.
+          clearExclusionForRoutineItems(r.items.map(it => it.routine_item_id));
         }
 
         renderRoutines();
@@ -88,6 +125,23 @@ function renderRoutines(){
       try{
         await apiSend('DELETE', `/routines/${r.routine_id}`);
         routines = routines.filter(x => x.routine_id !== r.routine_id);
+
+        // 이 루틴의 항목들이 이미 "다음날 계획"에 반영되어 있었을 수 있으니 즉시 정리
+        try{
+          const routineItemIds = new Set(r.items.map(it => it.routine_item_id));
+          if(routineItemIds.size > 0){
+            const todayActive = await resolveActiveDate();
+            const planDate = addDaysToDateStr(todayActive, 1);
+            const events = await apiGet(`/events?date=${planDate}`);
+            const toDelete = events.filter(ev => routineItemIds.has(ev.routine_item_id));
+            for(const ev of toDelete){
+              await apiSend('DELETE', `/events/${ev.event_id}`);
+            }
+          }
+        } catch(e){
+          // 정리 실패해도 루틴 삭제 자체는 이미 됐으니 조용히 넘어감
+        }
+
         renderRoutines();
       } catch(e){
         alert('삭제에 실패했어요: ' + e.message);
@@ -112,7 +166,9 @@ function renderRoutines(){
         txt.className = 'txt';
         const start = it.preferred_time;
         const end = it.preferred_time + it.duration;
-        txt.textContent = `${it.is_locked ? '🔒 ' : ''}${it.name} · ${minToClock(start)}~${minToClock(end)}`;
+        const cat = categories.find(c => c.category_id === it.category_id);
+        const catLabel = cat ? ` [${cat.icon ? cat.icon + ' ' : ''}${cat.name}]` : '';
+        txt.textContent = `${it.is_locked ? '🔒 ' : ''}${it.name} · ${minToClock(start)}~${minToClock(end)}${catLabel}`;
 
         const itemDel = document.createElement('button');
         itemDel.type = 'button';
@@ -122,6 +178,21 @@ function renderRoutines(){
           try{
             await apiSend('DELETE', `/routine-items/${it.routine_item_id}`);
             r.items = r.items.filter(x => x.routine_item_id !== it.routine_item_id);
+
+            // 이 항목이 이미 "다음날 계획"에 반영되어 있었을 수 있으니 즉시 정리
+            // (루틴을 통째로 껐을 때와 동일하게, 오늘 일정은 절대 건드리지 않고 다음날만 정리)
+            try{
+              const todayActive = await resolveActiveDate();
+              const planDate = addDaysToDateStr(todayActive, 1);
+              const events = await apiGet(`/events?date=${planDate}`);
+              const toDelete = events.filter(ev => ev.routine_item_id === it.routine_item_id);
+              for(const ev of toDelete){
+                await apiSend('DELETE', `/events/${ev.event_id}`);
+              }
+            } catch(e){
+              // 정리 실패해도 항목 삭제 자체는 이미 됐으니 조용히 넘어감
+            }
+
             renderRoutines();
           } catch(e){
             alert('삭제에 실패했어요: ' + e.message);
@@ -168,11 +239,25 @@ function renderRoutines(){
     lockCheckbox.type = 'checkbox';
     lockLabel.append(lockCheckbox, document.createTextNode('🔒'));
 
+    const catSelect = document.createElement('select');
+    catSelect.className = 'clock-input';
+    catSelect.style.width = 'auto';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = '카테고리 없음';
+    catSelect.appendChild(noneOpt);
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.category_id;
+      opt.textContent = `${c.icon ? c.icon + ' ' : ''}${c.name}`;
+      catSelect.appendChild(opt);
+    });
+
     const addBtn = document.createElement('button');
     addBtn.type = 'submit';
     addBtn.textContent = '추가';
 
-    itemForm.append(nameInput, startInput, dash, endInput, lockLabel, addBtn);
+    itemForm.append(nameInput, startInput, dash, endInput, lockLabel, catSelect, addBtn);
 
     itemForm.addEventListener('submit', async (e)=>{
       e.preventDefault();
@@ -186,7 +271,9 @@ function renderRoutines(){
       }
       try{
         const created = await apiSend('POST', `/routines/${r.routine_id}/items`, {
-          name, preferred_time: start, duration: end - start, is_locked: lockCheckbox.checked ? 1 : 0
+          name, preferred_time: start, duration: end - start,
+          is_locked: lockCheckbox.checked ? 1 : 0,
+          category_id: catSelect.value ? parseInt(catSelect.value, 10) : null
         });
         r.items.push(created);
         renderRoutines();
