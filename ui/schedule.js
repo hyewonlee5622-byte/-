@@ -291,129 +291,146 @@ function computePushedSchedule(chain, deltaMinutes, strategy){
     return { updated, deleted, warnings, appliedDelta: deltaMinutes };
   }
 
-  // strategy === 'skip': 잠긴 일정들은 각각 그 자리 그대로 두고,
-  // 그 사이/앞/뒤 구간마다 "다음 잠긴 일정을 침범하지 않는 선"에서 최대한 delta를 적용해 이어붙인다.
-  // (cap과 다른 점: 잠긴 일정 하나 때문에 전체가 다 같이 줄어들지 않고, 그 뒤 구간은 다시 원래 delta를 온전히 씀)
+  // strategy === 'skip': 밀다가 잠긴 일정과 겹치게 되면, 그 일정을 "쪼개지 않고 통째로"
+  // 잠긴 일정이 끝나는 시점 뒤로 옮겨 붙인다. (겹치지 않으면 그냥 원래 delta만큼 밀림)
+  // 예외: "수면 시간"은 끝이 없는 장벽이라 그 뒤로 옮길 곳이 없으므로, 그 앞까지만 채운다.
   const updated = [];
-  const lockedIdxs = [];
-  chain.forEach((t,i)=>{ if(t.locked) lockedIdxs.push(i); });
-  const boundaries = [...lockedIdxs, chain.length];
+  let cursor = null;
 
-  let cursor = null; // 이전 잠긴 일정이 끝나는 시각(또는 이전 구간의 마지막 일정이 끝나는 시각)
-  let segStart = 0;
-
-  boundaries.forEach(boundaryIdx=>{
-    const segTasks = chain.slice(segStart, boundaryIdx).filter(t=>!t.locked);
-
-    // 이 구간 끝에 잠긴 일정이 있으면, 그걸 침범하지 않는 선까지만 delta 사용
-    let segDelta = deltaMinutes;
-    if(boundaryIdx < chain.length){
-      const barrier = chain[boundaryIdx];
-      segTasks.forEach(t=>{
-        const room = barrier.startMin - t.endMin;
-        segDelta = Math.max(0, Math.min(segDelta, room));
-      });
+  for(let i=0; i<chain.length; i++){
+    const t = chain[i];
+    if(t.locked){
+      cursor = cursor === null ? t.endMin : Math.max(cursor, t.endMin);
+      continue;
     }
 
-    segTasks.forEach(t=>{
-      const duration = t.endMin - t.startMin;
-      const naiveStart = t.startMin + segDelta;
-      const newStart = cursor === null ? naiveStart : Math.max(cursor, naiveStart);
-      const newEnd = newStart + duration;
-      updated.push({ id: t.id, startMin: newStart, endMin: newEnd });
-      cursor = newEnd;
-    });
+    const duration = t.endMin - t.startMin;
+    let newStart = cursor === null ? t.startMin + deltaMinutes : Math.max(cursor, t.startMin + deltaMinutes);
 
-    if(boundaryIdx < chain.length){
-      const barrier = chain[boundaryIdx];
-      cursor = cursor === null ? barrier.endMin : Math.max(cursor, barrier.endMin);
+    // 아직 지나지 않은(=이 시각 이후에 끝나는) 잠긴 일정들과 순서대로 겹치는지 확인하며,
+    // 겹칠 때마다 그 일정을 통째로 그 잠긴 일정 뒤로 옮긴다.
+    for(let j=i+1; j<chain.length; j++){
+      if(!chain[j].locked) continue;
+      const barrier = chain[j];
+      if(newStart >= barrier.endMin) continue; // 이미 지나간 장벽이면 무시
+      if(newStart + duration <= barrier.startMin) break; // 안 겹침 -> 더 볼 필요 없음
+
+      if(barrier.id === '__sleep__'){
+        // 수면 시간 뒤로는 옮길 수 없으니, 그 앞까지 채울 수 있는 만큼만
+        newStart = Math.min(newStart, barrier.startMin - duration);
+        break;
+      }
+      newStart = barrier.endMin; // 통째로 이동
     }
-    segStart = boundaryIdx + 1;
-  });
+
+    const newEnd = newStart + duration;
+    updated.push({ id: t.id, startMin: newStart, endMin: newEnd });
+    cursor = newEnd;
+  }
 
   return { updated, deleted: [], warnings, appliedDelta: deltaMinutes };
 }
 
 pushApplyBtn.addEventListener('click', async ()=>{
-  if(editingTaskId == null) return;
-  const ref = tasks.find(x=>x.id===editingTaskId);
-  if(!ref) return;
+  console.log('[밀기] 버튼 클릭됨', { editingTaskId, pushStrategy, minutes: pushMinutes.value });
 
-  const deltaMinutes = parseInt(pushMinutes.value, 10);
-  if(!deltaMinutes || deltaMinutes <= 0){
-    showEditWarn('밀 시간을 1분 이상으로 입력하세요.');
-    return;
-  }
-
-  if(!pushStrategy){
-    showEditWarn('미루기 금지 일정과 겹쳤을 때 처리 방식을 선택하세요.');
-    return;
-  }
-
-  const { bedMin } = getWindow();
-
-  // 취침 시각(수면 시간)도 "잠긴 일정"처럼 취급해서, 밀다가 수면 시간을 넘어가지 않게 한다.
-  // (끝나는 시각이 없는 - 무한히 이어지는 - 잠긴 구간으로 체인에 끼워 넣으면 기존 3가지 전략 로직을 그대로 재사용할 수 있다)
-  const sleepBarrier = { id: '__sleep__', text: '수면 시간', startMin: bedMin, endMin: Infinity, locked: true };
-
-  const chain = tasks
-    .filter(t => t.startMin !== undefined && t.endMin !== undefined && t.startMin >= ref.startMin)
-    .concat([sleepBarrier])
-    .sort((a,b)=>a.startMin - b.startMin);
-
-  const { updated, deleted, warnings, appliedDelta } = computePushedSchedule(chain, deltaMinutes, pushStrategy);
-
-  if(updated.length === 0 && deleted.length === 0){
-    showEditWarn('밀 수 있는 일정이 없어요 (전부 잠겨있거나, 밀 만큼의 여유가 없어요).');
-    return;
-  }
-
-  pushApplyBtn.disabled = true;
-  pushApplyBtn.textContent = '적용 중...';
-
-  const saveFailures = [];
-
-  for(const u of updated){
-    const t = tasks.find(x=>x.id===u.id);
-    if(!t) continue;
-    t.startMin = u.startMin;
-    t.endMin = u.endMin;
-    try{
-      const payload = taskToEventPayload({
-        text: t.text,
-        startMin: t.startMin,
-        endMin: t.endMin,
-        critical: t.critical,
-        locked: t.locked,
-        routineItemId: t.routineItemId
-      }, PLAN_DATE);
-      const savedRow = await apiSend('PUT', `/events/${t.id}`, payload);
-      Object.assign(t, eventRowToTask(savedRow));
-    } catch(e){
-      saveFailures.push(`"${t.text}" 저장 실패: ${e.message}`);
+  try{
+    if(editingTaskId == null){
+      showEditWarn('수정 중인 일정이 없어요. 모달을 다시 열어주세요.');
+      return;
     }
-  }
-
-  for(const id of deleted){
-    try{
-      await apiSend('DELETE', `/events/${id}`);
-      tasks = tasks.filter(x => x.id !== id);
-    } catch(e){
-      const t = tasks.find(x=>x.id===id);
-      saveFailures.push(`"${t ? t.text : id}" 삭제 실패: ${e.message}`);
+    const ref = tasks.find(x=>x.id===editingTaskId);
+    if(!ref){
+      showEditWarn('이 일정을 찾을 수 없어요. 모달을 닫고 다시 열어주세요.');
+      return;
     }
+
+    const deltaMinutes = parseInt(pushMinutes.value, 10);
+    if(!deltaMinutes || deltaMinutes <= 0){
+      showEditWarn('밀 시간을 1분 이상으로 입력하세요.');
+      return;
+    }
+
+    if(!pushStrategy){
+      showEditWarn('미루기 금지 일정과 겹쳤을 때 처리 방식을 선택하세요.');
+      return;
+    }
+
+    const { bedMin } = getWindow();
+
+    // 취침 시각(수면 시간)도 "잠긴 일정"처럼 취급해서, 밀다가 수면 시간을 넘어가지 않게 한다.
+    const sleepBarrier = { id: '__sleep__', text: '수면 시간', startMin: bedMin, endMin: Infinity, locked: true };
+
+    const chain = tasks
+      .filter(t => t.startMin !== undefined && t.endMin !== undefined && t.startMin >= ref.startMin)
+      .concat([sleepBarrier])
+      .sort((a,b)=>a.startMin - b.startMin);
+
+    console.log('[밀기] 계산할 체인:', chain);
+
+    const { updated, deleted, warnings, appliedDelta } = computePushedSchedule(chain, deltaMinutes, pushStrategy);
+
+    console.log('[밀기] 계산 결과:', { updated, deleted, warnings, appliedDelta });
+
+    if(updated.length === 0 && deleted.length === 0){
+      showEditWarn('밀 수 있는 일정이 없어요 (전부 잠겨있거나, 밀 만큼의 여유가 없어요).');
+      return;
+    }
+
+    pushApplyBtn.disabled = true;
+    pushApplyBtn.textContent = '적용 중...';
+
+    const saveFailures = [];
+
+    for(const u of updated){
+      const t = tasks.find(x=>x.id===u.id);
+      if(!t) continue;
+      t.startMin = u.startMin;
+      t.endMin = u.endMin;
+      try{
+        const payload = taskToEventPayload({
+          text: t.text,
+          startMin: t.startMin,
+          endMin: t.endMin,
+          critical: t.critical,
+          locked: t.locked,
+          routineItemId: t.routineItemId
+        }, PLAN_DATE);
+        const savedRow = await apiSend('PUT', `/events/${t.id}`, payload);
+        Object.assign(t, eventRowToTask(savedRow));
+      } catch(e){
+        saveFailures.push(`"${t.text}" 저장 실패: ${e.message}`);
+      }
+    }
+
+    for(const id of deleted){
+      try{
+        await apiSend('DELETE', `/events/${id}`);
+        tasks = tasks.filter(x => x.id !== id);
+      } catch(e){
+        const t = tasks.find(x=>x.id===id);
+        saveFailures.push(`"${t ? t.text : id}" 삭제 실패: ${e.message}`);
+      }
+    }
+
+    pushApplyBtn.disabled = false;
+    pushApplyBtn.textContent = '밀기 적용';
+
+    const allMessages = [...warnings, ...saveFailures];
+    if(allMessages.length > 0){
+      alert(`${updated.length}개 일정을 ${appliedDelta}분 밀었어요.\n\n확인이 필요해요:\n` + allMessages.join('\n'));
+    }
+
+    closeEditModal();
+    renderGridTimetable();
+
+  } catch(err){
+    // 예상 못한 에러가 나도 절대 조용히 묻히지 않도록
+    console.error('[밀기] 예외 발생:', err);
+    pushApplyBtn.disabled = false;
+    pushApplyBtn.textContent = '밀기 적용';
+    alert('밀기 적용 중 오류가 발생했어요: ' + err.message);
   }
-
-  pushApplyBtn.disabled = false;
-  pushApplyBtn.textContent = '밀기 적용';
-
-  const allMessages = [...warnings, ...saveFailures];
-  if(allMessages.length > 0){
-    alert(`${updated.length}개 일정을 ${appliedDelta}분 밀었어요.\n\n확인이 필요해요:\n` + allMessages.join('\n'));
-  }
-
-  closeEditModal();
-  renderGridTimetable();
 });
 
 document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);

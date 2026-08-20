@@ -41,14 +41,17 @@ function renderRoutines(){
         await apiSend('PUT', `/routines/${r.routine_id}`, { name: r.name, is_active: toggle.checked ? 1 : 0 });
         r.is_active = toggle.checked ? 1 : 0;
 
-        // 루틴을 끄는 순간, 이미 계획(PLAN_DATE)에 반영된 이 루틴의 일정이 있으면 즉시 정리.
+        // 루틴을 끄는 순간, 이미 "다음날 계획"에 반영된 이 루틴의 일정이 있으면 즉시 정리.
         // (여기서 안 지우면, DB에 예전 top3/시간 값이 남아있다가 나중에 루틴을 다시 켰을 때
         //  planning.html이 그 오래된 값을 그대로 물고 들어오게 됨)
+        // 중요: 반드시 "다음날" 날짜만 정리해야 하고, "오늘" 일정은 절대 건드리면 안 됨.
+        // (달력상 오늘+1이 아니라, schedule.html/planning.html과 동일하게 기상 시각 기준으로 계산)
         if(!toggle.checked){
           const routineItemIds = new Set(r.items.map(it => it.routine_item_id));
           if(routineItemIds.size > 0){
             try{
-              const planDate = getPlanDate();
+              const todayActive = await resolveActiveDate();
+              const planDate = addDaysToDateStr(todayActive, 1); // 오늘(활성 날짜)이 아니라 반드시 그 다음날
               const events = await apiGet(`/events?date=${planDate}`);
               const toDelete = events.filter(ev => routineItemIds.has(ev.routine_item_id));
               for(const ev of toDelete){

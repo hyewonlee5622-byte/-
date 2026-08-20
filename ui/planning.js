@@ -403,6 +403,29 @@ function updateTargetButtonsUI(){
 }
 
 // 루틴 상태와 동기화 (꺼진 루틴 일정 제거, 켜진 루틴 새 항목 추가, top3/잠금 규칙 적용)
+// 시드 일정("오늘 일정 정리"/"다음날 일정 정리")이 있는지 확인하고, 이름을 지금 상황에 맞게 맞춘다.
+// 삭제 후 재생성하지 않고 이름만 바꾸므로 top3/잠금/시간 등은 그대로 보존된다.
+function ensureSeedTask(){
+  const seedName = (planTargetDate === activeDate) ? '오늘 일정 정리' : '다음날 일정 정리';
+  const otherSeedName = (planTargetDate === activeDate) ? '다음날 일정 정리' : '오늘 일정 정리';
+  const seedCandidates = tasks.filter(t => t.text === seedName || t.text === otherSeedName);
+
+  if(seedCandidates.length > 0){
+    seedCandidates[0].text = seedName;
+    if(seedCandidates.length > 1){
+      const extraIds = new Set(seedCandidates.slice(1).map(t=>t.id));
+      tasks = tasks.filter(t => !extraIds.has(t.id));
+    }
+  } else {
+    addTask(seedName);
+    const seed = tasks[tasks.length - 1];
+    const { bedMin } = getWindow();
+    seed.startMin = bedMin - 30;
+    seed.endMin = bedMin;
+    seed.anchorToBedtime = true;
+  }
+}
+
 async function syncWithRoutines(){
   let routines = [];
   try{
@@ -449,19 +472,7 @@ async function syncWithRoutines(){
     });
   });
 
-  // 기본 시드는 항상 유지하되, 이름이 같은 일정이 이미 있으면 중복 추가하지 않음.
-  // 오늘을 계획 중이면 "오늘 일정 정리", 다음날을 계획 중이면 "다음날 일정 정리"로 이름이 다름.
-  const seedName = (planTargetDate === activeDate) ? '오늘 일정 정리' : '다음날 일정 정리';
-  const otherSeedName = (planTargetDate === activeDate) ? '다음날 일정 정리' : '오늘 일정 정리';
-  tasks = tasks.filter(t => t.text !== otherSeedName); // 날짜를 넘나들며 남은 반대쪽 이름의 시드는 정리
-  if(!tasks.some(t => t.text === seedName)){
-    addTask(seedName);
-    const seed = tasks[tasks.length - 1];
-    const { bedMin } = getWindow();
-    seed.startMin = bedMin - 30;
-    seed.endMin = bedMin;
-    seed.anchorToBedtime = true;
-  }
+  ensureSeedTask();
 }
 
 // 특정 날짜의 계획을 불러와서 화면에 채운다 (오늘 ↔ 다음날 전환에도 재사용)
@@ -481,14 +492,26 @@ async function loadForDate(date){
   wakeInput.value = '07:00';
   bedInput.value = '23:00';
 
-  if(saved && saved.tasks.length > 0){
+  const hadExistingPlan = !!(saved && saved.tasks.length > 0);
+
+  if(hadExistingPlan){
     tasks = saved.tasks;
     nextId = Math.max(0, ...tasks.map(t=>t.id)) + 1;
     wakeInput.value = saved.wake || '07:00';
     bedInput.value = saved.bed || '23:00';
   }
 
-  await syncWithRoutines();
+  // 루틴 동기화는 "다음날"을 계획할 때, 또는 "오늘"인데 아직 계획이 하나도 없어서
+  // 처음 짜는 경우에만 적용한다. 이미 확정된 "오늘" 계획은 이후 루틴을 켜고 끄더라도
+  // 그 영향을 받지 않아야 하므로(이미 실행 중인 하루니까) 건드리지 않는다.
+  // "다음날" 탭일 때만 루틴 동기화. "오늘" 탭은 계획이 있든 없든 루틴 변경의 영향을 받지 않는다.
+  const shouldSyncRoutines = (planTargetDate === tomorrowDate);
+  if(shouldSyncRoutines){
+    await syncWithRoutines();
+  } else {
+    ensureSeedTask(); // 루틴 동기화는 건너뛰어도 시드 이름 정규화는 항상 해준다
+  }
+
   render();
 }
 
