@@ -99,7 +99,7 @@ function renderGridTimetable(){
     rowBg.style.position = 'relative';
 
     const stops = segments.map(seg=>{
-      const color = seg.kind === 'task' ? colorForTask(seg.task)
+      const color = seg.kind === 'task' ? (seg.task.completed ? 'var(--done)' : colorForTask(seg.task))
         : seg.kind === 'sleep' ? 'var(--sleep)' : 'transparent';
       const startPct = (seg.segStart - rowStart) / 60 * 100;
       const endPct = (seg.segEnd - rowStart) / 60 * 100;
@@ -172,6 +172,72 @@ function renderGridTimetable(){
 
     tableEl.appendChild(rowBg);
   }
+
+  renderChecklist();
+}
+
+// ---- 오늘 체크리스트 (완료 표시) ----
+function renderChecklist(){
+  const checklistEl = document.getElementById('taskChecklist');
+  if(!checklistEl) return;
+  checklistEl.innerHTML = '';
+
+  const scheduled = tasks
+    .filter(t => t.startMin !== undefined && t.endMin !== undefined && t.endMin > t.startMin)
+    .sort((a,b) => a.startMin - b.startMin);
+
+  if(scheduled.length === 0){
+    const li = document.createElement('li');
+    li.className = 'checklist-item';
+    li.innerHTML = '<span class="checklist-name" style="color:var(--ink-soft);">오늘 계획된 일정이 없어요.</span>';
+    checklistEl.appendChild(li);
+    return;
+  }
+
+  scheduled.forEach(t=>{
+    const li = document.createElement('li');
+    li.className = 'checklist-item' + (t.completed ? ' done' : '');
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!t.completed;
+    cb.addEventListener('change', async ()=>{
+      t.completed = cb.checked;
+      renderGridTimetable(); // 그리드 색(무채색 처리)까지 같이 갱신됨
+
+      try{
+        const payload = taskToEventPayload({
+          text: t.text,
+          startMin: t.startMin,
+          endMin: t.endMin,
+          critical: t.critical,
+          locked: t.locked,
+          routineItemId: t.routineItemId,
+          categoryId: t.categoryId,
+          completed: t.completed
+        }, PLAN_DATE);
+        const savedRow = await apiSend('PUT', `/events/${t.id}`, payload);
+        Object.assign(t, eventRowToTask(savedRow));
+      } catch(e){
+        console.warn('완료 상태 저장 실패:', e.message);
+      }
+    });
+
+    const dot = document.createElement('span');
+    dot.className = 'checklist-dot';
+    dot.style.background = t.completed ? 'var(--done)' : colorForTask(t);
+
+    const time = document.createElement('span');
+    time.className = 'checklist-time';
+    time.textContent = `${minToClock(t.startMin)}~${minToClock(t.endMin)}`;
+
+    const name = document.createElement('span');
+    name.className = 'checklist-name';
+    name.textContent = (t.locked ? '🔒 ' : '') + (t.critical ? '★ ' : '') + t.text;
+
+    li.append(cb, dot, time, name);
+    checklistEl.appendChild(li);
+  });
 }
 
 // ---- 일정 클릭 → 수정 모달 ----
@@ -395,7 +461,8 @@ pushApplyBtn.addEventListener('click', async ()=>{
           critical: t.critical,
           locked: t.locked,
           routineItemId: t.routineItemId,
-          categoryId: t.categoryId
+          categoryId: t.categoryId,
+          completed: t.completed
         }, PLAN_DATE);
         const savedRow = await apiSend('PUT', `/events/${t.id}`, payload);
         Object.assign(t, eventRowToTask(savedRow));
@@ -498,7 +565,8 @@ document.getElementById('editSaveBtn').addEventListener('click', async ()=>{
     critical: t.critical,
     locked: editLockedChip.classList.contains('active'),
     routineItemId: t.routineItemId,
-    categoryId: t.categoryId
+    categoryId: t.categoryId,
+    completed: t.completed
   }, PLAN_DATE);
 
   try{

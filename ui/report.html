@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>리포트 · 미션 타임플래너</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <div class="masthead">
+    <div class="masthead-top">
+      <div>
+        <p class="eyebrow">DEBRIEF</p>
+        <h1>하루 리포트</h1>
+      </div>
+      <div class="result-head-actions">
+        <a href="schedule.html" class="btn-ghost">오늘 시간표</a>
+        <a href="planning.html" class="btn-ghost">다음날 일정</a>
+      </div>
+    </div>
+    <p class="sub">하루를 어떻게 보냈는지 완료율과 카테고리 비율로 한눈에 확인하세요.</p>
+
+    <div class="field-row" style="margin-top:16px; align-items:flex-end;">
+      <label>날짜 선택
+        <input type="date" id="reportDateInput">
+      </label>
+      <button type="button" class="btn-ghost" id="reportTodayBtn">오늘로</button>
+    </div>
+  </div>
+
+  <div class="phases">
+
+    <section class="phase">
+      <div class="phase-head"><span class="phase-num">SUMMARY</span><h2>완료율</h2></div>
+      <div class="report-completion-row">
+        <div class="report-ring-wrap">
+          <svg viewBox="0 0 160 160" class="report-ring" id="completionRing">
+            <circle cx="80" cy="80" r="66" fill="none" stroke="var(--line)" stroke-width="18"></circle>
+            <circle cx="80" cy="80" r="66" fill="none" stroke="var(--accent1)" stroke-width="18"
+                    id="completionRingFg" stroke-linecap="round" transform="rotate(-90 80 80)"></circle>
+          </svg>
+          <div class="report-ring-label" id="completionPercentLabel">0%</div>
+        </div>
+        <div>
+          <p class="readout" id="completionText" style="border-top:none;padding-top:0;margin:0;">0 / 0개 완료</p>
+          <p class="hint" id="completionHint" style="margin-top:6px;">오늘 계획된 일정이 없어요.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="phase">
+      <div class="phase-head"><span class="phase-num">CATEGORY</span><h2>카테고리별 시간 비율</h2></div>
+      <div class="report-pie-row">
+        <svg viewBox="0 0 180 180" class="report-pie" id="pieChart"></svg>
+        <ul class="report-legend" id="categoryLegend"></ul>
+      </div>
+    </section>
+
+    <section class="phase">
+      <div class="phase-head"><span class="phase-num">TIMELINE</span><h2>오늘 어떻게 보냈나</h2></div>
+      <ul class="report-day-list" id="dayList"></ul>
+    </section>
+
+    <section class="phase">
+      <div class="phase-head"><h2>설정</h2></div>
+      <p class="hint" style="margin:0 0 14px;">아래 기능들은 아직 개발 중이에요. 지금 켜두면 준비되는 대로 자동으로 적용됩니다.</p>
+
+      <label class="settings-toggle-row">
+        <input type="checkbox" id="settingTimeAttack">
+        <span>
+          <strong>⏱ 타임어택 모드</strong>
+          <span class="hint" style="margin:2px 0 0;">정해진 시간 안에 일을 마치도록 카운트다운으로 압박감을 주는 기능 (개발 예정)</span>
+        </span>
+      </label>
+
+      <label class="settings-toggle-row">
+        <input type="checkbox" id="settingOverseas">
+        <span>
+          <strong>🌍 해외 시간 맞추기</strong>
+          <span class="hint" style="margin:2px 0 0;">여행 중에도 현지 시각 기준으로 하루를 계획할 수 있게 하는 기능 (개발 예정)</span>
+        </span>
+      </label>
+    </section>
+
+  </div>
+</div>
+
+<script src="common.js"></script>
+<script src="report.js"></script>
+</body>
+</html>

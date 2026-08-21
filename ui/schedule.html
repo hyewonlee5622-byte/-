@@ -17,7 +17,8 @@
       </div>
       <div class="result-head-actions">
         <button type="button" id="saveImageBtn" class="btn-ghost">📷 이미지로 저장</button>
-        <a href="planning.html" class="btn-ghost">일정 정하기</a>
+        <a href="report.html" class="btn-ghost">📊 리포트</a>
+        <a href="planning.html" class="btn-ghost">다음날 일정</a>
       </div>
     </div>
     <p class="hint" style="margin:0 0 14px;">일정을 클릭하면 수정할 수 있어요.</p>
@@ -26,6 +27,11 @@
       <div class="grid-col-header" id="gridColHeader"></div>
       <div class="grid-table" id="gridTable"></div>
     </div>
+
+    <section class="checklist-section">
+      <p class="panel-label" style="margin-top:24px;">오늘 체크리스트</p>
+      <ul class="checklist" id="taskChecklist"></ul>
+    </section>
   </section>
 </div>
 
@@ -70,7 +76,7 @@
         <div class="modal-chip-row" id="pushStrategyRow" style="margin-top:6px; flex-wrap:wrap;">
           <button type="button" class="chip-toggle" data-strategy="cap">밀 수 있는 만큼만</button>
           <button type="button" class="chip-toggle" data-strategy="delete">겹치면 삭제</button>
-          <button type="button" class="chip-toggle" data-strategy="skip">건너뛰기</button>
+          <button type="button" class="chip-toggle" data-strategy="skip">건너뛰고 이어붙이기</button>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
           <button type="button" class="modal-btn modal-btn-secondary" id="pushCancelBtn">취소</button>

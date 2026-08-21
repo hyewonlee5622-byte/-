@@ -176,12 +176,22 @@ async function savePlannerState(date, wake, bed, tasks){
   return created;
 }
 
+// 주기적 배경 저장용. 시간이 아직 안 정해진(빈 칸인) 일정은 서버에 보낼 수 없으므로 걸러내고 저장한다.
+// (렌더링/타이핑 타이밍과는 완전히 무관하게, setInterval 등에서 독립적으로 호출하기 위한 버전)
+async function autoSavePlannerState(date, wake, bed, tasks){
+  const readyTasks = tasks.filter(t =>
+    t.startMin !== undefined && t.endMin !== undefined && t.endMin > t.startMin
+  );
+  return savePlannerState(date, wake, bed, readyTasks);
+}
+
 function eventRowToTask(row){
   return {
     id: row.event_id,
     text: row.title,
     critical: !!row.is_top3,
     locked: !!row.is_locked,
+    completed: !!row.is_completed,
     startMin: row.start_time,
     endMin: row.end_time,
     routineItemId: row.routine_item_id || null,
@@ -196,6 +206,7 @@ function taskToEventPayload(task, date){
     end_time: task.endMin,
     is_top3: task.critical ? 1 : 0,
     is_locked: task.locked ? 1 : 0,
+    is_completed: task.completed ? 1 : 0,
     event_type: task.routineItemId ? 'routine' : 'manual',
     routine_item_id: task.routineItemId || null,
     category_id: task.categoryId || null
