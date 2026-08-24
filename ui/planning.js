@@ -96,8 +96,10 @@ function excludeRoutineItemForThisDate(routineItemId){
   }
 }
 
-// 추가/삭제/체크/잠금/카테고리/시간 변경 등 동작이 있을 때마다 조용히 백그라운드로 저장한다.
-// (시간이 아직 없는 일정은 autoSavePlannerState 안에서 알아서 걸러짐. 화면은 전혀 안 건드림)
+// "⚙ 루틴 설정" 버튼을 눌렀을 때만 서버로 중간 저장한다. (settingsLink는 "다음날" 탭에서만
+// 노출되므로, 결과적으로 "다음날 일정을 정하는 중에 루틴 설정으로 넘어갈 때"만 저장이 일어난다.)
+// 그 외 추가/삭제/체크/잠금/카테고리/시간 변경이나 오늘/다음날 탭 전환은 화면(state)만 바꾸고
+// 서버 저장은 하지 않는다.
 function saveInBackground(){
   if(!planTargetDate) return; // 아직 로딩 전이면 건너뜀
   autoSavePlannerState(planTargetDate, wakeInput.value, bedInput.value, tasks)
@@ -111,7 +113,6 @@ taskForm.addEventListener('submit', (e)=>{
   addTask(v);
   taskInput.value = '';
   render();
-  saveInBackground();
 });
 
 function renderTaskList(){
@@ -137,7 +138,6 @@ function renderTaskList(){
       }
       t.critical = cb.checked;
       render();
-      saveInBackground();
     });
 
     const span = document.createElement('span');
@@ -155,7 +155,6 @@ function renderTaskList(){
       if(t.routineItemId) excludeRoutineItemForThisDate(t.routineItemId);
       tasks = tasks.filter(x=>x.id!==t.id);
       render();
-      saveInBackground();
     });
 
     li.append(cb, span, del);
@@ -212,7 +211,6 @@ function renderAllocation(){
       if(t.routineLocked) return; // 루틴에서 정해진 잠금은 여기서 못 바꿈
       t.locked = !t.locked;
       render();
-      saveInBackground();
     });
 
     const name = document.createElement('span');
@@ -244,7 +242,6 @@ function renderAllocation(){
       if(t.routineItemId) return; // 루틴에서 정해진 카테고리는 여기서 못 바꿈
       t.categoryId = catSelect.value ? parseInt(catSelect.value, 10) : null;
       render();
-      saveInBackground();
     });
 
     const wrap = document.createElement('div');
@@ -264,7 +261,6 @@ function renderAllocation(){
     startInput.addEventListener('change', ()=>{
       t.startMin = normalizeToWindow(timeToMin(startInput.value), wakeMin);
       render();
-      saveInBackground();
     });
     normalizeClockInput(startInput);
 
@@ -283,7 +279,6 @@ function renderAllocation(){
     endInput.addEventListener('change', ()=>{
       t.endMin = normalizeToWindow(timeToMin(endInput.value), wakeMin);
       render();
-      saveInBackground();
     });
     normalizeClockInput(endInput);
 
@@ -463,8 +458,8 @@ function render(){
   renderTimeline();
 }
 
-wakeInput.addEventListener('change', ()=>{ render(); saveInBackground(); });
-bedInput.addEventListener('change', ()=>{ render(); saveInBackground(); });
+wakeInput.addEventListener('change', ()=>{ render(); });
+bedInput.addEventListener('change', ()=>{ render(); });
 normalizeClockInput(wakeInput);
 normalizeClockInput(bedInput);
 
@@ -476,6 +471,9 @@ let activeDate = null;
 let tomorrowDate = null;
 // 오늘(activeDate)의 취침 시각 (자정을 넘겼으면 1440+ 로 연장된 값). 다음날 계획을 검증할 때 씀.
 let todayBedMinExtended = null;
+// 사용자가 "오늘/다음날" 탭을 직접 클릭한 적이 있는지. true면 init()의 자동 초기 탭 선택은
+// 더 이상 끼어들면 안 된다 (사용자가 이미 원하는 탭으로 옮긴 뒤일 수 있으므로).
+let userSelectedTab = false;
 
 // 다음날을 계획 중일 때: 오늘 취침 시각보다 일찍 일어나는 건 논리적으로 모순이므로 검증한다.
 function getCrossDayIssue(wakeMin){
@@ -494,6 +492,7 @@ const planTargetHint = document.getElementById('planTargetHint');
 
 function updateTargetButtonsUI(){
   const isToday = planTargetDate === activeDate;
+  console.log(`[DEBUG] updateTargetButtonsUI: planTargetDate="${planTargetDate}" activeDate="${activeDate}" tomorrowDate="${tomorrowDate}" -> isToday=${isToday}`);
   planTodayBtn.style.background = isToday ? 'var(--ink)' : '';
   planTodayBtn.style.color = isToday ? '#fff' : '';
   planTodayBtn.style.borderColor = isToday ? 'var(--ink)' : '';
@@ -524,11 +523,20 @@ function updateTargetButtonsUI(){
 }
 
 // 루틴 상태와 동기화 (꺼진 루틴 일정 제거, 켜진 루틴 새 항목 추가, top3/잠금 규칙 적용)
-// 시드 일정 이름은 "오늘"/"다음날" 탭 구분 없이 항상 "다음날 일정 정리"로 고정한다.
-// (탭에 따라 이름이 갈리게 했더니 계속 헷갈렸어서, 아예 하나로 통일함)
-const SEED_TASK_NAME = '다음날 일정 정리';
+// 시드 일정의 표시 이름은 "지금 편집 중인 탭"에 맞춰 "오늘 일정 정리" / "다음날 일정 정리"로 다르게
+// 보여준다. (이전엔 탭 구분 없이 항상 "다음날 일정 정리"로 고정해뒀었는데, 그러면 "오늘" 탭을
+// 보고 있을 때도 할 일 목록에 "다음날"이라는 글자가 있는 항목이 떠서 탭이 바뀐 것처럼 혼동을
+// 줄 수 있어 이렇게 바꿈)
+function seedTaskNameForCurrentTab(){
+  return (planTargetDate === tomorrowDate) ? '다음날 일정 정리' : '오늘 일정 정리';
+}
 function ensureSeedTask(){
-  const seedCandidates = tasks.filter(t => t.text === SEED_TASK_NAME);
+  const seedName = seedTaskNameForCurrentTab();
+  // 서버에서 막 불러온 일정은 anchorToBedtime 플래그가 없으므로(DB에 저장되는 값이 아님),
+  // 예전에 쓰던 두 이름(텍스트) 중 하나와 일치하는지도 함께 확인해서 시드 일정을 찾아낸다.
+  const seedCandidates = tasks.filter(t =>
+    t.anchorToBedtime === true || t.text === '오늘 일정 정리' || t.text === '다음날 일정 정리'
+  );
 
   if(seedCandidates.length > 0){
     // 혹시 과거 버그로 중복 생성됐던 게 남아있으면 그것만 정리
@@ -536,8 +544,16 @@ function ensureSeedTask(){
       const extraIds = new Set(seedCandidates.slice(1).map(t=>t.id));
       tasks = tasks.filter(t => !extraIds.has(t.id));
     }
+    // 지금 보고 있는 탭에 맞는 이름으로 갱신 (탭을 옮겨왔을 수도 있으므로)
+    const remaining = tasks.find(t =>
+      t.anchorToBedtime === true || t.text === '오늘 일정 정리' || t.text === '다음날 일정 정리'
+    );
+    if(remaining){
+      remaining.text = seedName;
+      remaining.anchorToBedtime = true;
+    }
   } else {
-    addTask(SEED_TASK_NAME);
+    addTask(seedName);
     const seed = tasks[tasks.length - 1];
     const { bedMin } = getWindow();
     seed.startMin = bedMin - 30;
@@ -601,6 +617,7 @@ async function syncWithRoutines(){
 
 // 특정 날짜의 계획을 불러와서 화면에 채운다 (오늘 ↔ 다음날 전환에도 재사용)
 async function loadForDate(date){
+  console.trace(`[DEBUG] loadForDate("${date}") 호출 시점의 planTargetDate="${planTargetDate}"`);
   planTargetDate = date;
   updateTargetButtonsUI();
 
@@ -649,11 +666,25 @@ async function loadForDate(date){
   render();
 }
 
+// "오늘"/"다음날" 버튼 클릭 시: 실제로 탭을 옮기는 경우에만, settingsLink와 동일한 방식으로
+// 화면 상태 그대로(시간 없는 일정 포함) 로컬에 즉시 저장하고, 서버에도 가능한 만큼(시간이
+// 있는 일정) 저장을 시도한 뒤 다음 탭으로 전환한다. 서버 저장만으로는 시간이 아직 없는
+// 일정이 누락될 수 있어서, 화면 그대로 보존하려면 로컬 드래프트 저장이 반드시 같이 필요하다.
 planTodayBtn.addEventListener('click', ()=>{
-  if(planTargetDate !== activeDate) loadForDate(activeDate);
+  userSelectedTab = true;
+  if(planTargetDate !== activeDate){
+    saveDraftToLocalStorage();
+    saveInBackground();
+    loadForDate(activeDate);
+  }
 });
 planTomorrowBtn.addEventListener('click', ()=>{
-  if(planTargetDate !== tomorrowDate) loadForDate(tomorrowDate);
+  userSelectedTab = true;
+  if(planTargetDate !== tomorrowDate){
+    saveDraftToLocalStorage();
+    saveInBackground();
+    loadForDate(tomorrowDate);
+  }
 });
 
 // 완료 버튼: 지금 편집 중인 날짜(오늘 또는 다음날)에 저장하고 schedule.html로 이동
@@ -677,6 +708,8 @@ completeBtn.addEventListener('click', async ()=>{
 // 그냥 <a href="settings.html">로 바로 이동하면 지금까지 편집 중이던 내용이 날아가므로,
 // 클릭을 가로채서 화면 상태 그대로(시간 없는 일정 포함) 로컬에 즉시 저장하고,
 // 서버에도 가능한 만큼(시간이 있는 일정) 저장을 시도한 뒤 이동한다.
+// settingsLink는 updateTargetButtonsUI()에서 "오늘" 탭일 땐 숨겨지고 "다음날" 탭에서만
+// 보이므로, 아래 저장은 실질적으로 "다음날 일정 정하기 → 루틴 설정" 흐름에서만 일어난다.
 const settingsLink = document.getElementById('settingsLink');
 if(settingsLink){
   settingsLink.addEventListener('click', async (e)=>{
@@ -739,6 +772,11 @@ window.addEventListener('beforeunload', ()=>{
   } catch(e){
     // 못 가져와도 검증 없이 진행
   }
+
+  // 여기까지 오는 동안(카테고리/활성 날짜/오늘 계획 여부 조회 등) 시간이 걸리는데,
+  // 그 사이에 사용자가 이미 "오늘"/"다음날" 버튼을 눌러서 원하는 탭으로 옮겨갔을 수 있다.
+  // 그런 경우 여기서 뒤늦게 기본 탭으로 다시 덮어써버리면 안 되므로 건너뛴다.
+  if(userSelectedTab) return;
 
   await loadForDate(todayHasPlan ? tomorrowDate : activeDate);
 })();

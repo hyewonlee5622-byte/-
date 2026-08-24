@@ -1,3 +1,6 @@
 node_modules/
 planner.db
 *.log
+.env
+.DS_Store
+Thumbs.db
