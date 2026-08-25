@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>리포트 · 미션 타임플래너</title>
+<title>리포트 · 타임플래너</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -20,7 +20,7 @@
         <a href="planning.html" class="btn-ghost">다음날 일정</a>
       </div>
     </div>
-    <p class="sub">하루를 어떻게 보냈는지 완료율과 카테고리 비율로 한눈에 확인하세요.</p>
+    <p class="sub">하루를 어떻게 보냈는지 한눈에 확인하세요.</p>
 
     <div class="field-row" style="margin-top:16px; align-items:flex-end;">
       <label>날짜 선택
@@ -33,7 +33,7 @@
   <div class="phases">
 
     <section class="phase">
-      <div class="phase-head"><span class="phase-num">SUMMARY</span><h2>완료율</h2></div>
+      <div class="phase-head"><span class="phase-num">SUMMARY</span><h2>달성률</h2></div>
       <div class="report-completion-row">
         <div class="report-ring-wrap">
           <svg viewBox="0 0 160 160" class="report-ring" id="completionRing">
@@ -51,7 +51,7 @@
     </section>
 
     <section class="phase">
-      <div class="phase-head"><span class="phase-num">CATEGORY</span><h2>카테고리별 시간 비율</h2></div>
+      <div class="phase-head"><span class="phase-num">CATEGORY</span><h2>카테고리</h2></div>
       <div class="report-pie-row">
         <svg viewBox="0 0 180 180" class="report-pie" id="pieChart"></svg>
         <ul class="report-legend" id="categoryLegend"></ul>
@@ -59,7 +59,7 @@
     </section>
 
     <section class="phase">
-      <div class="phase-head"><span class="phase-num">TIMELINE</span><h2>오늘 어떻게 보냈나</h2></div>
+      <div class="phase-head"><span class="phase-num">TIMELINE</span><h2>타임라인</h2></div>
       <ul class="report-day-list" id="dayList"></ul>
     </section>
 

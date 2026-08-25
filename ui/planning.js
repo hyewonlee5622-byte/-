@@ -512,8 +512,8 @@ function updateTargetButtonsUI(){
   if(phase01Title) phase01Title.textContent = `${dayWord} 수면 · 기상`;
   if(phase01Hint){
     phase01Hint.innerHTML = isToday
-      ? `아침에 일어나서 작성하는 경우라면, 아래 두 시각은 <strong>오늘(지금 계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`
-      : `전날 밤에 작성하는 걸 기준으로, 아래 두 시각은 모두 <strong>다음날(계획하는 날)</strong> 기준이에요. 24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`;
+      ? `24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`
+      : `24시간 형식으로 입력하세요 (예: 오후 7시 30분 → <strong>19:30</strong>).`;
   }
   if(wakeLabelText) wakeLabelText.textContent = `${dayWord} 기상 시각`;
   if(bedLabelText) bedLabelText.textContent = `${dayWord} 취침 시각`;

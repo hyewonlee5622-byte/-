@@ -56,6 +56,21 @@ function all(stmt, ...params) {
   return stmt.all(...params);
 }
 
+// category_id/routine_item_id가 실제로 DB에 존재하는지 확인하고,
+// 이미 삭제되어 없는 값이면 FOREIGN KEY 오류로 저장 자체가 실패하지 않도록 null로 바꿔준다.
+// (예: "오늘" 계획에 반영된 루틴 항목을 설정 페이지에서 완전히 삭제한 경우처럼,
+//  클라이언트가 들고 있는 값이 서버 기준으로는 이미 죽은 참조일 수 있음)
+function sanitizeCategoryId(categoryId){
+  if(categoryId == null) return null;
+  const exists = row(db.prepare('SELECT category_id FROM category WHERE category_id = ?'), categoryId);
+  return exists ? categoryId : null;
+}
+function sanitizeRoutineItemId(routineItemId){
+  if(routineItemId == null) return null;
+  const exists = row(db.prepare('SELECT routine_item_id FROM routine_item WHERE routine_item_id = ?'), routineItemId);
+  return exists ? routineItemId : null;
+}
+
 // ============================================
 // DAY SETTINGS  (기상/취침 시각 - main.html의 Phase 01)
 // ============================================
@@ -122,10 +137,13 @@ app.post('/api/events', (req, res) => {
     return res.status(400).json({ error: '종료 시각이 시작 시각보다 늦어야 해요.' });
   }
 
+  const safeCategoryId = sanitizeCategoryId(category_id);
+  const safeRoutineItemId = sanitizeRoutineItemId(routine_item_id);
+
   const result = db.prepare(`
     INSERT INTO event (title, date, start_time, end_time, category_id, routine_item_id, event_type, is_top3, is_locked, memo)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(title, date, start_time, end_time, category_id, routine_item_id, event_type, is_top3 ? 1 : 0, is_locked ? 1 : 0, memo);
+  `).run(title, date, start_time, end_time, safeCategoryId, safeRoutineItemId, event_type, is_top3 ? 1 : 0, is_locked ? 1 : 0, memo);
 
   const created = row(db.prepare('SELECT * FROM event WHERE event_id = ?'), result.lastInsertRowid);
   res.status(201).json(created);
@@ -142,6 +160,9 @@ app.put('/api/events/:id', (req, res) => {
     return res.status(400).json({ error: '종료 시각이 시작 시각보다 늦어야 해요.' });
   }
 
+  const safeCategoryId = sanitizeCategoryId(merged.category_id);
+  const safeRoutineItemId = sanitizeRoutineItemId(merged.routine_item_id);
+
   db.prepare(`
     UPDATE event
     SET title = ?, date = ?, start_time = ?, end_time = ?, category_id = ?,
@@ -149,8 +170,8 @@ app.put('/api/events/:id', (req, res) => {
         updated_at = datetime('now')
     WHERE event_id = ?
   `).run(
-    merged.title, merged.date, merged.start_time, merged.end_time, merged.category_id,
-    merged.routine_item_id, merged.event_type, merged.is_top3 ? 1 : 0,
+    merged.title, merged.date, merged.start_time, merged.end_time, safeCategoryId,
+    safeRoutineItemId, merged.event_type, merged.is_top3 ? 1 : 0,
     merged.is_completed ? 1 : 0, merged.is_locked ? 1 : 0, merged.memo, id
   );
 
@@ -267,6 +288,14 @@ app.delete('/api/routine-items/:id', (req, res) => {
   const result = db.prepare('DELETE FROM routine_item WHERE routine_item_id = ?').run(req.params.id);
   if (result.changes === 0) return res.status(404).json({ error: '해당 항목을 찾을 수 없어요.' });
   res.status(204).send();
+});
+
+// ---------- 마지막 안전망: 라우트에서 예상 못 한 에러(DB 제약 위반 등)가 나도
+// 서버 콘솔에 스택트레이스만 찍고 죽는 대신, 클라이언트에 깔끔한 JSON 에러로 응답한다. ----------
+app.use((err, req, res, next) => {
+  console.error('요청 처리 중 에러:', err.message);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: '서버에서 처리 중 오류가 발생했어요: ' + err.message });
 });
 
 const PORT = process.env.PORT || 3000;

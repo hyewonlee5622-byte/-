@@ -211,7 +211,7 @@ function renderRoutines(){
 
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
-    nameInput.placeholder = '일정 이름 (예: 스트레칭)';
+    nameInput.placeholder = '일정 이름';
 
     const startInput = document.createElement('input');
     startInput.type = 'text';
